@@ -1,0 +1,10 @@
+generator client {
+  provider = "prisma-client"
+  output   = "./generated"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Models land in feat(db): location/material/stock/movement/user (plan section 2).
