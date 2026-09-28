@@ -7,4 +7,97 @@ datasource db {
   provider = "postgresql"
 }
 
-// Models land in feat(db): location/material/stock/movement/user (plan section 2).
+enum Role {
+  ADMIN
+  OPERATOR
+  VIEWER
+}
+
+enum MovementType {
+  INBOUND
+  OUTBOUND
+  TRANSFER
+  ADJUSTMENT
+}
+
+model Location {
+  id        String     @id @default(uuid())
+  name      String
+  parentId  String?
+  parent    Location?  @relation("LocationTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Location[] @relation("LocationTree")
+  position  Int        @default(0)
+  qrCode    String?    @unique
+  disabled  Boolean    @default(false)
+  stocks    Stock[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model Material {
+  id        String     @id @default(uuid())
+  code      String     @unique
+  name      String
+  unit      String     @default("UN")
+  minStock  Int        @default(0)
+  costCents Int        @default(0)
+  disabled  Boolean    @default(false)
+  stocks    Stock[]
+  movements Movement[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model Stock {
+  id          String   @id @default(uuid())
+  materialId  String
+  material    Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  locationId  String
+  location    Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  quantity    Int      @default(0)
+  position    Int      @default(0)
+  notes       String?
+  needsReview Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([materialId, locationId])
+}
+
+model Movement {
+  id         String       @id @default(uuid())
+  type       MovementType
+  quantity   Int
+  materialId String
+  material   Material     @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  userId     String?
+  user       User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  destination String?
+  createdAt  DateTime     @default(now())
+}
+
+model User {
+  id        String    @id @default(uuid())
+  name      String
+  email     String    @unique
+  password  String // bcrypt hash, never plaintext; never include in select
+  role      Role      @default(VIEWER)
+  disabled  Boolean   @default(false)
+  sessions  Session[]
+  movements Movement[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Session {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique // SHA-256 of the refresh token; raw value never stored
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  replacedBy String? // id of the child session (rotation chain)
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+}
