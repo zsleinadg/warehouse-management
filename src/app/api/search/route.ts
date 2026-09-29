@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
+import { authorize } from "@/lib/roles";
 import { breadcrumbMap } from "@/lib/inventory-tree";
 
 const querySchema = z.object({
@@ -9,6 +10,9 @@ const querySchema = z.object({
 
 /** Search materials by code or name, with every stock location as a breadcrumb. */
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  const auth = await authorize(request, ["ADMIN", "OPERATOR", "VIEWER"]);
+  if ("response" in auth) return auth.response;
+
   const parsed = querySchema.safeParse({
     q: request.nextUrl.searchParams.get("q") ?? "",
   });

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { hashRefreshToken } from "@/lib/auth";
 import {
   REFRESH_COOKIE,
   clearAuthCookies,
-  hashRefreshToken,
 } from "@/lib/tokens";
 
 /** Revoke the current session and clear cookies. Always succeeds. */

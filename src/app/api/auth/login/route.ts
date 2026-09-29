@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
-import { comparePassword } from "@/lib/auth";
+import { comparePassword, generateRefreshToken, hashRefreshToken, refreshExpiresAt } from "@/lib/auth";
 import {
-  generateRefreshToken,
-  hashRefreshToken,
-  refreshExpiresAt,
   setAuthCookies,
   signAccessToken,
 } from "@/lib/tokens";

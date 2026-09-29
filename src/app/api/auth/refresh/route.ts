@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { generateRefreshToken, hashRefreshToken, refreshExpiresAt } from "@/lib/auth";
 import {
   REFRESH_COOKIE,
   clearAuthCookies,
-  generateRefreshToken,
-  hashRefreshToken,
-  refreshExpiresAt,
   setAuthCookies,
   signAccessToken,
 } from "@/lib/tokens";

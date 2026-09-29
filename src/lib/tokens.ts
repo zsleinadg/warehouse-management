@@ -1,4 +1,3 @@
-import { createHash, randomBytes } from "node:crypto";
 import { JWTPayload, SignJWT, jwtVerify } from "jose";
 import { NextResponse } from "next/server";
 
@@ -46,16 +45,6 @@ export async function verifyAccessToken(
   } catch {
     return null;
   }
-}
-
-/** Opaque refresh token (raw value travels only in the httpOnly cookie). */
-export function generateRefreshToken(): string {
-  return randomBytes(32).toString("hex");
-}
-
-/** SHA-256 of the refresh token: the only form ever stored (Session.tokenHash). */
-export function hashRefreshToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
 }
 
 export function refreshExpiresAt(from = new Date()): Date {
