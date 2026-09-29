@@ -131,7 +131,7 @@ export default function StockList({
                 ⋮⋮
               </span>
             )}
-            <span className="min-w-20 text-[13px] font-semibold text-sky-800 dark:text-sky-300">
+            <span className="min-w-20 font-mono text-[13px] font-semibold text-sky-800 dark:text-sky-300">
               {stock.material.code}
             </span>
             <span className="flex-1 text-[13px]">{stock.material.name}</span>

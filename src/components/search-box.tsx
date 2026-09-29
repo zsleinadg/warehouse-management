@@ -63,7 +63,7 @@ export default function SearchBox({ onJump }: SearchBoxProps) {
                 }}
                 className="mb-1 block w-full rounded-md border border-zinc-200 px-2 py-1.5 text-left text-[13px] hover:bg-sky-100 dark:border-zinc-700 dark:hover:bg-sky-950"
               >
-                <span className="font-semibold text-sky-800 dark:text-sky-300">
+                <span className="font-mono font-semibold text-sky-800 dark:text-sky-300">
                   {item.code}
                 </span>{" "}
                 {item.name}
