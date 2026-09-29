@@ -100,4 +100,38 @@ Meio
     expect(entries[0].path).not.toEqual(entries[1].path);
     expect(entries[0].code).toBe(entries[1].code);
   });
+
+  it("keeps a lone Meio 1 as sibling of Baixo instead of nesting", () => {
+    const entries = parseInventory(`P4 Left
+Baixo
+780709 Arruela Quadrada
+Meio 1
+990293 Isolador`);
+
+    expect(entries[0].path).toEqual(["P4", "Left", "Baixo"]);
+    expect(entries[1].path).toEqual(["P4", "Left", "Meio 1"]);
+  });
+
+  it("keeps corridor sub-levels flat under the corridor", () => {
+    const entries = parseInventory(`Corredor P3-P4
+Baixo
+780700 Peca
+Meio 2
+780702 Bucha`);
+
+    expect(entries[0].path).toEqual(["Corredor P3-P4", "Baixo"]);
+    expect(entries[1].path).toEqual(["Corredor P3-P4", "Meio 2"]);
+  });
+
+  it("nests numbered headings only under their prefix parent", () => {
+    const entries = parseInventory(`P2 Left
+Meio
+Meio 1
+9900014115 Descon 15KV
+Cima
+280054 Caixa Protecao`);
+
+    expect(entries[0].path).toEqual(["P2", "Left", "Meio", "Meio 1"]);
+    expect(entries[1].path).toEqual(["P2", "Left", "Cima"]);
+  });
 });
