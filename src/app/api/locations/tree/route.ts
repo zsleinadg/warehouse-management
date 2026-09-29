@@ -1,9 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
+import { authorize } from "@/lib/roles";
 import { buildTree } from "@/lib/inventory-tree";
 
 /** Full location tree (roots to leaves) with stocks at each node. */
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  const auth = await authorize(request, ["ADMIN", "OPERATOR", "VIEWER"]);
+  if ("response" in auth) return auth.response;
   const locations = await prisma.location.findMany({
     where: { disabled: false },
     select: { id: true, name: true, parentId: true, position: true },
