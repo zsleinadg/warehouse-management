@@ -24,6 +24,7 @@ jobs:
       - run: npm ci
       - run: npx next typegen
       - run: npx prisma generate
+      - run: npm test
       - run: npx eslint .
       - run: npx tsc --noEmit
       - run: npm run build

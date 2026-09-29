@@ -43,6 +43,23 @@ de comandos anteriores e mascaram erros que o runner limpo encontra.
   `.env.local` (local) e env da Vercel (produção/preview).
 - **Commit:** `fix(ci): generate prisma client with dummy database url`
 
+## Lição 3 — Config TS do Jest quebra no Node do CI (PR #6)
+
+- **Erro:** `Jest: 'ts-node' is required for the TypeScript configuration
+  files` no step `npm test` (exit 1), só no runner.
+- **Causa:** o Jest só lê `jest.config.ts` via `ts-node`, que não é
+  dependência do projeto. Local passava por acidente de ambiente:
+  Node 24 tem type-stripping nativo de `.ts`, mas o CI roda Node 20,
+  que não carrega `.ts` sem `ts-node`.
+- **Fix:** `jest.config.ts` → `jest.config.js` (CommonJS,
+  `require("next/jest.js")`, mesmo conteúdo) — carrega em qualquer
+  Node, zero dependência nova. Alternativa descartada: adicionar
+  `ts-node` como devDep (peso morto só para parsear config).
+- **Corolário:** versão do Node local ≠ CI mascara falhas. Espelhar o
+  CI localmente (mesmo major do `setup-node`) antes do push quando o
+  erro cheirar a ambiente.
+- **Commit:** `fix(ci): use plain js jest config for node 20 runner`
+
 ## Checklist ao alterar o pipeline
 
 1. A mudança precisa de algum artefato gerado? Se sim, quem o cria no CI?
