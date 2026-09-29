@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ACCESS_COOKIE, verifyAccessToken } from "./src/lib/tokens";
+import { ACCESS_COOKIE, verifyAccessToken } from "./lib/tokens";
 
 /**
  * Edge guard: /login redirects home when already authenticated, every
