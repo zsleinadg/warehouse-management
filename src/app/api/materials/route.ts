@@ -12,8 +12,6 @@ const createSchema = z.object({
   disabled: z.coerce.boolean().default(false),
 });
 
-const updateSchema = createSchema.partial();
-
 function invalid(issues: { field: string; message: string }[], status: number) {
   return NextResponse.json({ errors: issues }, { status });
 }

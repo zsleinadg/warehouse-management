@@ -38,7 +38,7 @@ export async function PATCH(
 
   const existing = await prisma.material.findUnique({
     where: { id },
-    select: { code: true, name: true, unit: true, minStock: true, costCents: true, stocks: { select: { id: true } } },
+    select: { code: true, name: true, unit: true, minStock: true, costCents: true, disabled: true, stocks: { select: { id: true } } },
   });
   if (!existing) {
     return invalid([{ field: "id", message: "Material not found" }], 404);
@@ -90,7 +90,7 @@ export async function DELETE(
   const { id } = await params;
   const existing = await prisma.material.findUnique({
     where: { id },
-    select: { code: true, name: true, stocks: { select: { id: true, locationId: true } } },
+    select: { id: true, code: true, name: true, stocks: { select: { id: true, locationId: true } } },
   });
   if (!existing) {
     return invalid([{ field: "id", message: "Material not found" }], 404);
