@@ -1,6 +1,7 @@
 /** Shapes returned by /api/locations/tree and /api/search. */
 
 export interface TreeMaterial {
+  id: string;
   code: string;
   name: string;
   unit: string;

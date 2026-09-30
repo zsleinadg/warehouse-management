@@ -1,178 +1,152 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import LocationTree from "@/components/location-tree";
-import SearchBox from "@/components/search-box";
-import StockList from "@/components/stock-list";
-import { findIdPath, findNamePath, findNode, type TreeNode } from "@/lib/warehouse";
+import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
+import { formatCents } from "@/lib/api-client";
 
-async function fetchTree(): Promise<TreeNode[]> {
-  const response = await fetch("/api/locations/tree");
-  if (!response.ok) throw new Error("Failed to load locations");
+interface DashboardData {
+  materialsCount: number;
+  locationsCount: number;
+  openIssues: number;
+  totalQuantity: number;
+  valuationCents: number;
+  lowStockCount: number;
+  lowStock: {
+    code: string;
+    name: string;
+    unit: string;
+    quantity: number;
+    minStock: number;
+  }[];
+  recentMovements: {
+    id: string;
+    type: string;
+    quantity: number;
+    destination: string | null;
+    nfNumber: string | null;
+    createdAt: string;
+    material: { code: string; name: string };
+    user: { name: string } | null;
+  }[];
+}
+
+async function fetchDashboard(): Promise<DashboardData> {
+  const response = await fetch("/api/dashboard");
+  if (!response.ok) throw new Error("Failed to load dashboard");
   const body = await response.json();
-  return body.data ?? [];
+  return body.data;
 }
 
-interface Me {
-  id: string;
-  name: string;
-  email: string;
-  role: "ADMIN" | "OPERATOR" | "VIEWER";
-}
+const TYPE_LABEL: Record<string, string> = {
+  INBOUND: "Entrada",
+  OUTBOUND: "Saída",
+  TRANSFER: "Transferência",
+  ADJUSTMENT: "Ajuste",
+  RETURN: "Devolução",
+};
 
-async function fetchMe(): Promise<Me | null> {
-  const response = await fetch("/api/auth/me");
-  if (!response.ok) return null;
-  const body = await response.json();
-  return body.data ?? null;
-}
+export default function DashboardPage() {
+  const { data, isLoading } = useQuery({ queryKey: ["dashboard"], queryFn: fetchDashboard });
 
-function apiErrorMessage(body: unknown, fallback: string): string {
-  if (
-    body &&
-    typeof body === "object" &&
-    "errors" in body &&
-    Array.isArray(body.errors) &&
-    body.errors.length > 0 &&
-    typeof body.errors[0]?.message === "string"
-  ) {
-    return body.errors[0].message;
-  }
-  return fallback;
-}
-
-export default function Home() {
-  const router = useRouter();
-  const queryClient = useQueryClient();
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [highlightCode, setHighlightCode] = useState<string | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
-
-  const { data: tree = [], isLoading } = useQuery({
-    queryKey: ["tree"],
-    queryFn: fetchTree,
-  });
-  const { data: me } = useQuery({ queryKey: ["me"], queryFn: fetchMe });
-  const canEdit = me?.role === "ADMIN" || me?.role === "OPERATOR";
-
-  function invalidate(): void {
-    void queryClient.invalidateQueries({ queryKey: ["tree"] });
+  if (isLoading || !data) {
+    return <p className="px-1 py-2 text-[13px] text-zinc-500">Carregando…</p>;
   }
 
-  const moveMutation = useMutation({
-    mutationFn: async ({ stockId, position }: { stockId: string; position: number }) => {
-      const response = await fetch(`/api/stocks/${stockId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ position }),
-      });
-      if (!response.ok) throw new Error(apiErrorMessage(await response.json(), "Move failed"));
-    },
-    onSuccess: invalidate,
-  });
-
-  const addMutation = useMutation({
-    mutationFn: async ({ code, name }: { code: string; name: string }) => {
-      if (!selectedId) return;
-      setFormError(null);
-      const response = await fetch("/api/stocks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ locationId: selectedId, code, name }),
-      });
-      if (!response.ok) throw new Error(apiErrorMessage(await response.json(), "Add failed"));
-    },
-    onSuccess: invalidate,
-    onError: (error: Error) => setFormError(error.message),
-  });
-
-  const removeMutation = useMutation({
-    mutationFn: async (stockId: string) => {
-      const response = await fetch(`/api/stocks/${stockId}`, { method: "DELETE" });
-      if (!response.ok) throw new Error("Remove failed");
-    },
-    onSuccess: invalidate,
-  });
-
-  async function logout(): Promise<void> {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/login");
-    router.refresh();
-  }
-
-  function toggle(id: string): void {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function select(id: string): void {
-    setSelectedId(id);
-    setHighlightCode(null);
-  }
-
-  function jump(locationId: string, code: string): void {
-    const idPath = findIdPath(tree, locationId);
-    if (idPath) setExpanded((prev) => new Set([...prev, ...idPath]));
-    setSelectedId(locationId);
-    setHighlightCode(code);
-  }
-
-  const selected = selectedId ? findNode(tree, selectedId) : null;
-  const breadcrumb = selectedId ? (findNamePath(tree, selectedId) ?? []) : [];
+  const cards = [
+    { label: "Materiais ativos", value: String(data.materialsCount), href: "/materiais" },
+    { label: "Localizações", value: String(data.locationsCount), href: "/locais" },
+    { label: "Unidades em estoque", value: String(data.totalQuantity), href: "/estoque" },
+    { label: "Valorização", value: formatCents(data.valuationCents), href: "/relatorios" },
+    { label: "Requisições em aberto", value: String(data.openIssues), href: "/saidas" },
+    { label: "Abaixo do mínimo", value: String(data.lowStockCount), href: "#baixo-estoque" },
+  ];
 
   return (
-    <div className="mx-auto flex h-screen max-w-5xl gap-3 p-3">
-      <aside className="flex w-70 flex-shrink-0 flex-col overflow-y-auto rounded-xl border border-zinc-200 bg-white p-2.5 dark:border-zinc-700 dark:bg-zinc-900">
-        <h1 className="mx-1.5 my-1 mb-2.5 text-base font-semibold">Almoxarifado</h1>
-        <div className="flex-1">
-          {isLoading ? (
-            <p className="px-1 py-2 text-[13px] text-zinc-500">Carregando…</p>
-          ) : (
-            <LocationTree
-              nodes={tree}
-              expanded={expanded}
-              selectedId={selectedId}
-              onToggle={toggle}
-              onSelect={select}
-            />
-          )}
+    <div>
+      <h2 className="mb-3 text-lg font-semibold">Dashboard</h2>
+      <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-3">
+        {cards.map((card) => (
+          <Link
+            key={card.label}
+            href={card.href}
+            className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 dark:border-zinc-700 dark:bg-black"
+          >
+            <p className="text-[11px] text-zinc-500">{card.label}</p>
+            <p className="text-xl font-semibold">{card.value}</p>
+          </Link>
+        ))}
+      </div>
+
+      <h3 id="baixo-estoque" className="mb-2 text-sm font-semibold">
+        Abaixo do estoque mínimo ({data.lowStockCount})
+      </h3>
+      {data.lowStock.length === 0 ? (
+        <p className="mb-4 text-[13px] text-zinc-500">Nenhum material abaixo do mínimo.</p>
+      ) : (
+        <div className="mb-4 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="bg-zinc-50 text-left dark:bg-black">
+                <th className="px-2.5 py-1.5 font-medium">Código</th>
+                <th className="px-2.5 py-1.5 font-medium">Material</th>
+                <th className="px-2.5 py-1.5 font-medium">Saldo</th>
+                <th className="px-2.5 py-1.5 font-medium">Mínimo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.lowStock.map((item) => (
+                <tr key={item.code} className="border-t border-zinc-200 dark:border-zinc-700">
+                  <td className="px-2.5 py-1.5 font-mono font-semibold text-sky-800 dark:text-sky-300">
+                    {item.code}
+                  </td>
+                  <td className="px-2.5 py-1.5">{item.name}</td>
+                  <td className="px-2.5 py-1.5 text-red-700 dark:text-red-300">
+                    {item.quantity} {item.unit}
+                  </td>
+                  <td className="px-2.5 py-1.5">
+                    {item.minStock} {item.unit}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        {me && (
-          <div className="mt-2 flex items-center justify-between border-t border-zinc-200 px-1.5 pt-2 text-xs text-zinc-500 dark:border-zinc-700">
-            <span>
-              {me.name} · {me.role}
-            </span>
-            <button onClick={logout} className="font-medium hover:text-zinc-800 dark:hover:text-zinc-200">
-              Sair
-            </button>
-          </div>
-        )}
-      </aside>
-      <main className="flex flex-1 flex-col overflow-y-auto rounded-xl border border-zinc-200 bg-white p-3.5 dark:border-zinc-700 dark:bg-zinc-900">
-        <SearchBox onJump={jump} />
-        <StockList
-          key={selectedId ?? "none"}
-          node={selected}
-          breadcrumb={breadcrumb}
-          highlightCode={highlightCode}
-          canEdit={canEdit}
-          onMove={(stockId, targetIndex) => moveMutation.mutate({ stockId, position: targetIndex })}
-          onAdd={(code, name) => addMutation.mutate({ code, name })}
-          onRemove={(stockId, label) => {
-            if (window.confirm(`Remover "${label}" desta localização?`)) {
-              removeMutation.mutate(stockId);
-            }
-          }}
-          formError={formError}
-        />
-      </main>
+      )}
+
+      <h3 className="mb-2 text-sm font-semibold">Movimentações recentes</h3>
+      {data.recentMovements.length === 0 ? (
+        <p className="text-[13px] text-zinc-500">Nenhuma movimentação registrada ainda.</p>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="bg-zinc-50 text-left dark:bg-black">
+                <th className="px-2.5 py-1.5 font-medium">Tipo</th>
+                <th className="px-2.5 py-1.5 font-medium">Material</th>
+                <th className="px-2.5 py-1.5 font-medium">Qtd</th>
+                <th className="px-2.5 py-1.5 font-medium">Destino/NF</th>
+                <th className="px-2.5 py-1.5 font-medium">Por</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.recentMovements.map((m) => (
+                <tr key={m.id} className="border-t border-zinc-200 dark:border-zinc-700">
+                  <td className="px-2.5 py-1.5">{TYPE_LABEL[m.type] ?? m.type}</td>
+                  <td className="px-2.5 py-1.5">
+                    <span className="mr-1.5 font-mono font-semibold text-sky-800 dark:text-sky-300">
+                      {m.material.code}
+                    </span>
+                    {m.material.name}
+                  </td>
+                  <td className="px-2.5 py-1.5">×{m.quantity}</td>
+                  <td className="px-2.5 py-1.5 text-zinc-500">{m.destination ?? m.nfNumber ?? "—"}</td>
+                  <td className="px-2.5 py-1.5 text-zinc-500">{m.user?.name ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

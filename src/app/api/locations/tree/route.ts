@@ -22,7 +22,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       position: true,
       notes: true,
       needsReview: true,
-      material: { select: { code: true, name: true, unit: true } },
+      material: { select: { id: true, code: true, name: true, unit: true } },
     },
     orderBy: { position: "asc" },
   });
