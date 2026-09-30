@@ -7,7 +7,7 @@ const createSchema = z.object({
   locationId: z.uuid("Invalid location"),
   code: z.string().trim().min(1, "Code is required").max(64),
   name: z.string().trim().min(1, "Name is required").max(200),
-  quantity: z.coerce.number().int().min(1).default(1),
+  quantity: z.coerce.number().int().min(0).default(0),
 });
 
 function invalid(issues: { field: string; message: string }[], status: number) {

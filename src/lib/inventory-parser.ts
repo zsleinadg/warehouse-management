@@ -64,13 +64,18 @@ function parseItem(line: string, path: string[]): InventoryEntry {
  *
  * Heading rules:
  * - "P1 Left" resets the path to ["P1", "Left"]; "Corredor P3-P4" to itself
- * - Ranked sub-headings ("Baixo" < "Meio 1" < "Parte 2") truncate the
- *   stack to their rank, so levels never need explicit nesting
+ * - Ranked sub-headings pop siblings first ("Baixo" < "Meio 1" < "Parte 2"),
+ *   so levels never need explicit nesting
+ * - A numbered heading ("Meio 1", "Parte 2") becomes a child only when the
+ *   current section name is its prefix ("Meio", "Meio 3"); otherwise it
+ *   starts a sibling section one level up, so a lone "Meio 1" never lands
+ *   inside "Baixo"
  * - "Meio 1 Continuando" jumps back to the "Meio 1" section
  */
 export function parseInventory(text: string): InventoryEntry[] {
   const entries: InventoryEntry[] = [];
-  let stack: string[] = [];
+  let stack: { name: string; rank: number }[] = [];
+  const path = (): string[] => stack.map((s) => s.name);
 
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
@@ -78,13 +83,18 @@ export function parseInventory(text: string): InventoryEntry[] {
 
     const topMatch = line.match(TOP_PATTERN);
     if (topMatch) {
-      stack = topMatch[2] ? [topMatch[1].toUpperCase(), topMatch[3]] : [topMatch[1].toUpperCase()];
+      stack = topMatch[2]
+        ? [
+            { name: topMatch[1].toUpperCase(), rank: 0 },
+            { name: topMatch[3], rank: 1 },
+          ]
+        : [{ name: topMatch[1].toUpperCase(), rank: 0 }];
       continue;
     }
 
     const corridorMatch = line.match(CORRIDOR_PATTERN);
     if (corridorMatch) {
-      stack = [line];
+      stack = [{ name: line, rank: 0 }];
       continue;
     }
 
@@ -95,11 +105,23 @@ export function parseInventory(text: string): InventoryEntry[] {
 
     const rank = headingRank(heading);
     if (rank > 0) {
-      stack = [...stack.slice(0, rank), heading];
+      while (stack.length > 0 && stack[stack.length - 1].rank >= rank) {
+        stack.pop();
+      }
+      const parent = stack[stack.length - 1];
+      if (
+        rank > 2 &&
+        parent &&
+        parent.rank === 2 &&
+        !heading.toLowerCase().startsWith(parent.name.toLowerCase())
+      ) {
+        stack.pop();
+      }
+      stack.push({ name: heading, rank });
       continue;
     }
 
-    entries.push(parseItem(line, stack));
+    entries.push(parseItem(line, path()));
   }
 
   return entries;
