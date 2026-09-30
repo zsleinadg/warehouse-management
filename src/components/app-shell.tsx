@@ -13,8 +13,9 @@ const NAV = [
   { href: "/saidas", label: "Saídas · OT" },
   { href: "/devolucoes", label: "Devoluções" },
   { href: "/contagem", label: "Contagem" },
-  { href: "/movimentos", label: "Auditoria" },
+  { href: "/auditoria", label: "Auditoria" },
   { href: "/relatorios", label: "Relatórios" },
+  { href: "/isometrica", label: "Isométrica" },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
