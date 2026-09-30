@@ -18,6 +18,13 @@ enum MovementType {
   OUTBOUND
   TRANSFER
   ADJUSTMENT
+  RETURN
+}
+
+enum IssueStatus {
+  DRAFT
+  CLOSED
+  CANCELLED
 }
 
 model Location {
@@ -27,11 +34,12 @@ model Location {
   parent    Location?  @relation("LocationTree", fields: [parentId], references: [id], onDelete: Cascade)
   children  Location[] @relation("LocationTree")
   position  Int        @default(0)
-  qrCode    String?    @unique
-  disabled  Boolean    @default(false)
-  stocks    Stock[]
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  qrCode      String?      @unique
+  disabled    Boolean      @default(false)
+  stocks      Stock[]
+  returnItems ReturnItem[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 }
 
 model Material {
@@ -42,11 +50,13 @@ model Material {
   minStock            Int                  @default(0)
   costCents           Int                  @default(0)
   disabled            Boolean              @default(false)
-  stocks              Stock[]
-  movements           Movement[]
+  stocks               Stock[]
+  movements            Movement[]
   purchaseInvoiceLines PurchaseInvoiceLine[]
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  issueItems           IssueItem[]
+  returnItems          ReturnItem[]
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
 }
 
 model Stock {
@@ -77,10 +87,13 @@ model Movement {
   nfNumber    String?
   reason      String?
   issueId     String?
+  returnId    String?
   createdAt   DateTime     @default(now())
 
   @@index([materialId])
   @@index([nfNumber])
+  @@index([issueId])
+  @@index([returnId])
 }
 
 model PurchaseInvoice {
@@ -107,6 +120,68 @@ model PurchaseInvoiceLine {
   @@index([materialId])
 }
 
+model Issue {
+  id          String      @id @default(uuid())
+  number      Int         @unique @default(autoincrement())
+  ot          String?
+  destination String
+  foreman     String?
+  notes       String?
+  status      IssueStatus @default(DRAFT)
+  userId      String?
+  user        User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  items       IssueItem[]
+  returns     Return[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([status])
+  @@index([ot])
+}
+
+model IssueItem {
+  id                String   @id @default(uuid())
+  issueId           String
+  issue             Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  materialId        String
+  material          Material @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  quantity          Int
+  fulfilledQuantity Int      @default(0)
+  createdAt         DateTime @default(now())
+
+  @@unique([issueId, materialId])
+  @@index([materialId])
+}
+
+model Return {
+  id        String       @id @default(uuid())
+  number    Int          @unique @default(autoincrement())
+  issueId   String
+  issue     Issue        @relation(fields: [issueId], references: [id], onDelete: Restrict)
+  reason    String
+  userId    String?
+  user      User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  items     ReturnItem[]
+  createdAt DateTime     @default(now())
+
+  @@index([issueId])
+}
+
+model ReturnItem {
+  id         String   @id @default(uuid())
+  returnId   String
+  return     Return   @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  materialId String
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  quantity   Int
+  createdAt  DateTime @default(now())
+
+  @@unique([returnId, materialId, locationId])
+  @@index([materialId])
+}
+
 model User {
   id        String    @id @default(uuid())
   name      String
@@ -116,6 +191,8 @@ model User {
   disabled  Boolean   @default(false)
   sessions  Session[]
   movements Movement[]
+  issues    Issue[]
+  returns   Return[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 }
