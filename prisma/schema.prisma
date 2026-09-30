@@ -35,17 +35,18 @@ model Location {
 }
 
 model Material {
-  id        String     @id @default(uuid())
-  code      String     @unique
-  name      String
-  unit      String     @default("UN")
-  minStock  Int        @default(0)
-  costCents Int        @default(0)
-  disabled  Boolean    @default(false)
-  stocks    Stock[]
-  movements Movement[]
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id                  String               @id @default(uuid())
+  code                String               @unique
+  name                String
+  unit                String               @default("UN")
+  minStock            Int                  @default(0)
+  costCents           Int                  @default(0)
+  disabled            Boolean              @default(false)
+  stocks              Stock[]
+  movements           Movement[]
+  purchaseInvoiceLines PurchaseInvoiceLine[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 }
 
 model Stock {
@@ -65,15 +66,45 @@ model Stock {
 }
 
 model Movement {
-  id         String       @id @default(uuid())
-  type       MovementType
-  quantity   Int
-  materialId String
-  material   Material     @relation(fields: [materialId], references: [id], onDelete: Restrict)
-  userId     String?
-  user       User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  id          String       @id @default(uuid())
+  type        MovementType
+  quantity    Int
+  materialId  String
+  material    Material     @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  userId      String?
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
   destination String?
-  createdAt  DateTime     @default(now())
+  nfNumber    String?
+  reason      String?
+  issueId     String?
+  createdAt   DateTime     @default(now())
+
+  @@index([materialId])
+  @@index([nfNumber])
+}
+
+model PurchaseInvoice {
+  id        String               @id @default(uuid())
+  number    String               @unique
+  supplier  String
+  issuedAt  DateTime
+  lines     PurchaseInvoiceLine[]
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+}
+
+model PurchaseInvoiceLine {
+  id            String          @id @default(uuid())
+  invoiceId     String
+  invoice       PurchaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  materialId    String
+  material      Material        @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  quantity      Int
+  unitCostCents Int
+  createdAt     DateTime        @default(now())
+
+  @@unique([invoiceId, materialId])
+  @@index([materialId])
 }
 
 model User {
