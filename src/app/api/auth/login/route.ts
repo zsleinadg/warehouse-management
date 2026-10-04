@@ -8,8 +8,10 @@ import {
 } from "@/lib/tokens";
 
 const loginSchema = z.object({
-  email: z.email("Invalid email").max(254),
-  password: z.string().min(1, "Password is required").max(256),
+  // trim: teclados mobile costumam inserir espaço/capitalização via
+  // autocomplete — "email e senha corretos" com espaço no fim caíam aqui.
+  email: z.string().trim().toLowerCase().pipe(z.email("Invalid email").max(254)),
+  password: z.string().trim().min(1, "Password is required").max(256),
 });
 
 /** Issue access + rotating refresh cookies. Raw refresh value never touches the DB. */

@@ -1,5 +1,15 @@
 /** Shared API error-shape helpers for client components. */
 
+export async function safeJson(response: Response): Promise<unknown> {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 export function apiErrorMessage(body: unknown, fallback: string): string {
   if (
     body &&

@@ -13,6 +13,7 @@ export interface LedgerMovement {
   reason?: string | null;
   issueId?: string | null;
   returnId?: string | null;
+  locationId?: string | null;
 }
 
 /** Append one row to the immutable movement ledger. */
@@ -28,6 +29,7 @@ export async function recordMovement(tx: LedgerTx, movement: LedgerMovement) {
       reason: movement.reason ?? undefined,
       issueId: movement.issueId ?? undefined,
       returnId: movement.returnId ?? undefined,
+      locationId: movement.locationId ?? undefined,
     },
     select: { id: true },
   });
