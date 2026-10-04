@@ -15,9 +15,10 @@ function useDebounced(value: string, delayMs: number): string {
 
 interface SearchBoxProps {
   onJump: (locationId: string, code: string) => void;
+  onPlace?: (code: string, name: string) => void;
 }
 
-export default function SearchBox({ onJump }: SearchBoxProps) {
+export default function SearchBox({ onJump, onPlace }: SearchBoxProps) {
   const [query, setQuery] = useState("");
   const debounced = useDebounced(query.trim(), 300);
 
@@ -54,29 +55,49 @@ export default function SearchBox({ onJump }: SearchBoxProps) {
             </p>
           )}
           {results.flatMap((item) =>
-            item.locations.map((loc) => (
+            item.locations.length === 0 ? (
               <button
-                key={`${item.code}-${loc.locationId}`}
+                key={item.code}
+                type="button"
                 onClick={() => {
-                  onJump(loc.locationId, item.code);
+                  onPlace?.(item.code, item.name);
                   setQuery("");
                 }}
-                className="mb-1 block w-full rounded-md border border-zinc-200 px-2 py-1.5 text-left text-[13px] hover:bg-sky-100 dark:border-zinc-700 dark:hover:bg-sky-950"
+                className="mb-1 block w-full rounded-md border border-dashed border-sky-400 bg-sky-50 px-2 py-1.5 text-left text-[13px] hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950 dark:hover:bg-sky-900"
               >
                 <span className="font-mono font-semibold text-sky-800 dark:text-sky-300">
                   {item.code}
                 </span>{" "}
                 {item.name}
-                {loc.needsReview && (
-                  <span className="ml-1 rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-900 dark:text-amber-200">
-                    revisar
-                  </span>
-                )}
                 <span className="block text-[11px] text-zinc-500">
-                  {loc.path.join(" → ")} · qtd {loc.quantity}
+                  sem estoque — clique para alocar em um local
                 </span>
               </button>
-            )),
+            ) : (
+              item.locations.map((loc) => (
+                <button
+                  key={`${item.code}-${loc.locationId}`}
+                  onClick={() => {
+                    onJump(loc.locationId, item.code);
+                    setQuery("");
+                  }}
+                  className="mb-1 block w-full rounded-md border border-zinc-200 px-2 py-1.5 text-left text-[13px] hover:bg-sky-100 dark:border-zinc-700 dark:hover:bg-sky-950"
+                >
+                  <span className="font-mono font-semibold text-sky-800 dark:text-sky-300">
+                    {item.code}
+                  </span>{" "}
+                  {item.name}
+                  {loc.needsReview && (
+                    <span className="ml-1 rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                      revisar
+                    </span>
+                  )}
+                  <span className="block text-[11px] text-zinc-500">
+                    {loc.path.join(" → ")} · qtd {loc.quantity}
+                  </span>
+                </button>
+              ))
+            )
           )}
         </div>
       )}
