@@ -107,6 +107,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         userId: auth.user.userId,
         destination: location.name,
         reason: parsed.data.reason,
+        locationId: location.id,
       });
       adjustments.push({
         materialId: item.materialId,

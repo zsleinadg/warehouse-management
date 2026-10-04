@@ -89,6 +89,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
+  // @@unique([invoiceId, materialId]): mesma dupla material+local em duas
+  // linhas estouraria P2002 — agregue na UI ou devolva 409 aqui.
+  const seenLines = new Set<string>();
+  for (const [index, line] of parsed.data.lines.entries()) {
+    const key = `${line.materialId}::${line.locationId}`;
+    if (seenLines.has(key)) {
+      return invalid(
+        [
+          {
+            field: `lines.${index}`,
+            message: "Duplicate material in the same location — merge into a single line",
+          },
+        ],
+        409,
+      );
+    }
+    seenLines.add(key);
+  }
+
   const materialIds = [...new Set(parsed.data.lines.map((line) => line.materialId))];
   const locationIds = [...new Set(parsed.data.lines.map((line) => line.locationId))];
   const [materials, locations] = await Promise.all([
@@ -182,6 +201,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         materialId: line.materialId,
         userId: auth.user.userId,
         nfNumber: created.number,
+        locationId: line.locationId,
       });
       await tx.material.update({
         where: { id: line.materialId },

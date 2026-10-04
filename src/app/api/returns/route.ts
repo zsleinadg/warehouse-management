@@ -74,6 +74,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       id: true,
       number: true,
       ot: true,
+      destination: true,
       status: true,
       items: { select: { materialId: true, fulfilledQuantity: true } },
       returns: {
@@ -115,6 +116,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const materialById = new Map(materials.map((m) => [m.id, m]));
   const locationById = new Map(locations.map((l) => [l.id, l]));
 
+  // Teto agregado por material (várias linhas do mesmo material somam) e
+  // @@unique([returnId, materialId, locationId]): mesma dupla material+local
+  // em duas linhas estouraria P2002 — devolva 409 em vez de 500.
+  const requestedByMaterial = new Map<string, number>();
+  const seenPairs = new Set<string>();
   for (const [index, item] of parsed.data.items.entries()) {
     const material = materialById.get(item.materialId);
     if (!material) {
@@ -138,7 +144,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     const returnable =
       (fulfilledByMaterial.get(item.materialId) ?? 0) - (alreadyReturned.get(item.materialId) ?? 0);
-    if (item.quantity > returnable) {
+    const requestedSoFar = requestedByMaterial.get(item.materialId) ?? 0;
+    if (requestedSoFar + item.quantity > returnable) {
       return invalid(
         [
           {
@@ -149,6 +156,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         409,
       );
     }
+    requestedByMaterial.set(item.materialId, requestedSoFar + item.quantity);
+    const pairKey = `${item.materialId}::${item.locationId}`;
+    if (seenPairs.has(pairKey)) {
+      return invalid(
+        [
+          {
+            field: `items.${index}`,
+            message: "Duplicate material in the same location — merge into a single line",
+          },
+        ],
+        409,
+      );
+    }
+    seenPairs.add(pairKey);
   }
 
   const created = await prisma.$transaction(async (tx) => {
@@ -191,10 +212,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         quantity: item.quantity,
         materialId: item.materialId,
         userId: auth.user.userId,
-        destination: issue.ot ?? undefined,
+        destination: issue.ot ?? issue.destination,
         reason: parsed.data.reason,
         issueId: issue.id,
         returnId: ret.id,
+        locationId: item.locationId,
       });
     }
     return ret;

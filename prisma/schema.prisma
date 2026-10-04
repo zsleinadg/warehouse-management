@@ -27,6 +27,11 @@ enum IssueStatus {
   CANCELLED
 }
 
+enum IssueKind {
+  OBRA
+  EMERGENCIAL
+}
+
 model Location {
   id        String     @id @default(uuid())
   name      String
@@ -88,9 +93,11 @@ model Movement {
   reason      String?
   issueId     String?
   returnId    String?
+  locationId  String?
   createdAt   DateTime     @default(now())
 
   @@index([materialId])
+  @@index([locationId])
   @@index([nfNumber])
   @@index([issueId])
   @@index([returnId])
@@ -124,10 +131,15 @@ model Issue {
   id          String      @id @default(uuid())
   number      Int         @unique @default(autoincrement())
   ot          String?
+  kind        IssueKind   @default(OBRA)
+  vehiclePlate String?
+  nfNumber    String?
   destination String
   foreman     String?
   notes       String?
   status      IssueStatus @default(DRAFT)
+  cancelReason String?
+  cancelledAt DateTime?
   userId      String?
   user        User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
   items       IssueItem[]
@@ -143,14 +155,28 @@ model IssueItem {
   id                String   @id @default(uuid())
   issueId           String
   issue             Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
-  materialId        String
-  material          Material @relation(fields: [materialId], references: [id], onDelete: Restrict)
-  quantity          Int
+  materialId    String
+  material      Material @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  quantity      Int
   fulfilledQuantity Int      @default(0)
-  createdAt         DateTime @default(now())
+  isExtra       Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  additions     IssueItemAddition[]
 
   @@unique([issueId, materialId])
   @@index([materialId])
+}
+
+model IssueItemAddition {
+  id          String    @id @default(uuid())
+  issueItemId String
+  issueItem   IssueItem @relation(fields: [issueItemId], references: [id], onDelete: Cascade)
+  quantity    Int
+  userId      String?
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+
+  @@index([issueItemId])
 }
 
 model Return {
@@ -193,6 +219,7 @@ model User {
   movements Movement[]
   issues    Issue[]
   returns   Return[]
+  issueItemAdditions IssueItemAddition[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 }

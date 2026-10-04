@@ -10,6 +10,9 @@ const itemSchema = z.object({
 
 const createSchema = z.object({
   ot: z.string().trim().max(64).optional(),
+  kind: z.enum(["OBRA", "EMERGENCIAL"]).default("OBRA"),
+  vehiclePlate: z.string().trim().max(16).optional(),
+  nfNumber: z.string().trim().max(64).optional(),
   destination: z.string().trim().min(1, "Destination is required").max(200),
   foreman: z.string().trim().max(120).optional(),
   notes: z.string().trim().max(1000).optional(),
@@ -26,14 +29,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if ("response" in auth) return auth.response;
 
   const status = request.nextUrl.searchParams.get("status");
+  const kind = request.nextUrl.searchParams.get("kind");
   const issues = await prisma.issue.findMany({
-    where: status === "DRAFT" || status === "CLOSED" || status === "CANCELLED" ? { status } : {},
+    where: {
+      ...(status === "DRAFT" || status === "CLOSED" || status === "CANCELLED" ? { status } : {}),
+      ...(kind === "OBRA" || kind === "EMERGENCIAL" ? { kind } : {}),
+    },
     orderBy: { createdAt: "desc" },
     take: 100,
     select: {
       id: true,
       number: true,
       ot: true,
+      kind: true,
+      vehiclePlate: true,
+      nfNumber: true,
       destination: true,
       foreman: true,
       status: true,
@@ -72,6 +82,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const materialIds = [...new Set(parsed.data.items.map((item) => item.materialId))];
+  if (materialIds.length !== parsed.data.items.length) {
+    return invalid(
+      [{ field: "items", message: "Duplicate material — merge into a single line" }],
+      409,
+    );
+  }
   const materials = await prisma.material.findMany({
     where: { id: { in: materialIds } },
     select: { id: true, code: true, disabled: true },
@@ -96,6 +112,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const issue = await prisma.issue.create({
     data: {
       ot: parsed.data.ot || undefined,
+      kind: parsed.data.kind,
+      vehiclePlate: parsed.data.vehiclePlate || undefined,
+      nfNumber: parsed.data.nfNumber || undefined,
       destination: parsed.data.destination,
       foreman: parsed.data.foreman || undefined,
       notes: parsed.data.notes || undefined,
@@ -111,6 +130,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       id: true,
       number: true,
       ot: true,
+      kind: true,
+      vehiclePlate: true,
+      nfNumber: true,
       destination: true,
       foreman: true,
       notes: true,

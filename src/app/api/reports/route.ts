@@ -5,6 +5,8 @@ import { authorize } from "@/lib/roles";
 
 const querySchema = z.object({
   ot: z.string().uuid("Invalid OT").optional(),
+  kind: z.enum(["OBRA", "EMERGENCIAL"]).optional(),
+  nfNumber: z.string().trim().max(64).optional(),
   materialId: z.string().uuid("Invalid material").optional(),
   dateFrom: z.coerce.date("Invalid date").optional(),
   dateTo: z.coerce.date("Invalid date").optional(),
@@ -37,6 +39,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (parsed.data.ot) {
     where.issue = { id: parsed.data.ot };
   }
+  if (parsed.data.kind) {
+    where.issue = { ...(typeof where.issue === "object" ? where.issue : {}), kind: parsed.data.kind };
+  }
+  if (parsed.data.nfNumber) {
+    where.nfNumber = parsed.data.nfNumber;
+  }
 
   if (parsed.data.dateFrom || parsed.data.dateTo) {
     const createdAt: Record<string, Date> = {};
@@ -53,11 +61,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       type: true,
       quantity: true,
       destination: true,
+      nfNumber: true,
+      locationId: true,
       createdAt: true,
       issueId: true,
       material: { select: { id: true, code: true, name: true, unit: true, costCents: true } },
     },
   });
+
+  const locationNameById = new Map(
+    (
+      await prisma.location.findMany({
+        where: { id: { in: [...new Set(movements.map((m) => m.locationId).filter((id): id is string => id !== null))] } },
+        select: { id: true, name: true },
+      })
+    ).map((l) => [l.id, l.name]),
+  );
 
   const byMaterial = new Map<string, {
     code: string;
@@ -66,7 +85,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     totalQuantity: number;
     totalCostCents: number;
     movementCount: number;
-    movements: { type: string; quantity: number; destination: string | null; createdAt: string }[];
+    movements: { type: string; quantity: number; destination: string | null; nfNumber: string | null; location: string | null; createdAt: string }[];
   }>();
 
   for (const m of movements) {
@@ -84,7 +103,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     entry.totalQuantity += sign * m.quantity;
     entry.totalCostCents += sign * m.quantity * m.material.costCents;
     entry.movementCount += 1;
-    entry.movements.push({ type: m.type, quantity: m.quantity, destination: m.destination, createdAt: m.createdAt.toISOString() });
+    entry.movements.push({ type: m.type, quantity: m.quantity, destination: m.destination, nfNumber: m.nfNumber, location: m.locationId ? (locationNameById.get(m.locationId) ?? m.locationId) : null, createdAt: m.createdAt.toISOString() });
     byMaterial.set(key, entry);
   }
 
