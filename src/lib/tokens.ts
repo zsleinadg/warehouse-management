@@ -3,7 +3,9 @@ import { NextResponse } from "next/server";
 
 export const ACCESS_COOKIE = "warehouse_token";
 export const REFRESH_COOKIE = "warehouse_refresh";
-export const ACCESS_TTL_SECONDS = 15 * 60;
+// Turno de trabalho: 12h corridas desde o login (JWT + maxAge do cookie
+// seguem esta constante). Aparelhos são individuais, então sessão longa é OK.
+export const ACCESS_TTL_SECONDS = 12 * 60 * 60;
 export const REFRESH_TTL_DAYS = 30;
 
 interface AccessClaims extends JWTPayload {
@@ -51,11 +53,22 @@ export function refreshExpiresAt(from = new Date()): Date {
   return new Date(from.getTime() + REFRESH_TTL_DAYS * 24 * 60 * 60 * 1000);
 }
 
+function cookieSecure(): boolean {
+  // Navegadores aceitam cookie `Secure` em localhost (origem confiável), mas
+  // recusam em http://<ip-da-lan> — e aí o login "entra e volta", pois o
+  // POST 200 tem o Set-Cookie descartado. Para produção servida via HTTPS,
+  // mantenha o padrão seguro; para uso em rede local via HTTP, defina
+  // COOKIE_SECURE=false no .env.local e refaça o build.
+  if (process.env.COOKIE_SECURE === "false") return false;
+  if (process.env.COOKIE_SECURE === "true") return true;
+  return process.env.NODE_ENV === "production";
+}
+
 function cookieOptions(maxAge: number) {
   return {
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
+    secure: cookieSecure(),
     path: "/",
     maxAge,
   };
