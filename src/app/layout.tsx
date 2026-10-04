@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Providers from "./providers";
-import AppShell from "@/components/app-shell";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -19,13 +19,19 @@ export const metadata: Metadata = {
   description: "Warehouse management: catalog, locations, invoices, issues, returns and audit",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: React.PropsWithChildren) {
   return (
     <html
       lang="pt-BR"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col"><Providers><AppShell>{children}</AppShell></Providers></body>
+      <body className="min-h-full flex flex-col">
+        <Providers>
+          <TooltipProvider>
+            {children}
+          </TooltipProvider>
+        </Providers>
+      </body>
     </html>
   );
 }

@@ -60,10 +60,10 @@ function TreeRow({
         role="treeitem"
         aria-expanded={hasChildren ? isOpen : undefined}
         aria-selected={isSelected}
-        onClick={() => {
-          if (hasChildren) onToggle(node.id);
-          if (node.stocks.length > 0) onSelect(node.id);
-        }}
+         onClick={() => {
+           if (hasChildren) onToggle(node.id);
+           onSelect(node.id);
+         }}
         style={{ marginLeft: depth * 10 }}
         className={`flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] hover:bg-sky-100 dark:hover:bg-sky-950 ${
           isSelected

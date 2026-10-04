@@ -24,3 +24,8 @@ export function useCanEdit(): boolean {
   const { data: me } = useMe();
   return me?.role === "ADMIN" || me?.role === "OPERATOR";
 }
+
+export function useIsAdmin(): boolean {
+  const { data: me } = useMe();
+  return me?.role === "ADMIN";
+}
