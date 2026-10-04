@@ -10,6 +10,29 @@ function invalid(issues: { field: string; message: string }[], status: number) {
   return NextResponse.json({ errors: issues }, { status });
 }
 
+function isWriteConflict(err: unknown): boolean {
+  return (err as { code?: string } | null)?.code === "P2034";
+}
+
+/**
+ * Renumerações concorrentes (drops/cliques encavalados) conflitam no banco
+ * (P2034 TransactionWriteConflict). Rejeitar de primeira vira 500 à toa:
+ * tenta de novo com backoff curto; só desiste com 409 tratável.
+ */
+async function withWriteRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (!isWriteConflict(err) || attempt === attempts - 1) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 60 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
+
 /** Move a stock within its location, renumbering siblings in one transaction. */
 export async function PATCH(
   request: NextRequest,
@@ -56,11 +79,23 @@ export async function PATCH(
   const siblingIds = siblings.map((sibling) => sibling.id);
   const ordered = [...siblingIds.slice(0, target), stock.id, ...siblingIds.slice(target)];
 
-  await prisma.$transaction(
-    ordered.map((id, position) =>
-      prisma.stock.update({ where: { id }, data: { position } }),
-    ),
-  );
+  try {
+    await withWriteRetry(() =>
+      prisma.$transaction(
+        ordered.map((id, position) =>
+          prisma.stock.update({ where: { id }, data: { position } }),
+        ),
+      ),
+    );
+  } catch (err) {
+    if (isWriteConflict(err)) {
+      return invalid(
+        [{ field: "position", message: "A ordem mudou agora mesmo — tente mover de novo" }],
+        409,
+      );
+    }
+    throw err;
+  }
 
   const moved = await prisma.stock.findUnique({
     where: { id: stock.id },
@@ -109,11 +144,23 @@ export async function DELETE(
     select: { id: true },
     orderBy: { position: "asc" },
   });
-  await prisma.$transaction(
-    siblings.map((sibling, position) =>
-      prisma.stock.update({ where: { id: sibling.id }, data: { position } }),
-    ),
-  );
+  try {
+    await withWriteRetry(() =>
+      prisma.$transaction(
+        siblings.map((sibling, position) =>
+          prisma.stock.update({ where: { id: sibling.id }, data: { position } }),
+        ),
+      ),
+    );
+  } catch (err) {
+    if (isWriteConflict(err)) {
+      return invalid(
+        [{ field: "id", message: "A ordem mudou agora mesmo — tente de novo" }],
+        409,
+      );
+    }
+    throw err;
+  }
 
   return NextResponse.json({ data: { ok: true } });
 }
