@@ -36,11 +36,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     material: parsed.data.materialId ? { id: parsed.data.materialId } : undefined,
   };
 
+  // Movement has no issue relation (scalar issueId only): resolve ids first.
   if (parsed.data.ot) {
-    where.issue = { id: parsed.data.ot };
+    where.issueId = parsed.data.ot;
   }
   if (parsed.data.kind) {
-    where.issue = { ...(typeof where.issue === "object" ? where.issue : {}), kind: parsed.data.kind };
+    const matching = await prisma.issue.findMany({
+      where: {
+        kind: parsed.data.kind,
+        ...(parsed.data.ot ? { id: parsed.data.ot } : {}),
+      },
+      select: { id: true },
+    });
+    const ids = matching.map((i) => i.id);
+    if (parsed.data.ot && !ids.includes(parsed.data.ot)) {
+      return NextResponse.json({ data: [] });
+    }
+    where.issueId = parsed.data.ot ?? { in: ids };
   }
   if (parsed.data.nfNumber) {
     where.nfNumber = parsed.data.nfNumber;
