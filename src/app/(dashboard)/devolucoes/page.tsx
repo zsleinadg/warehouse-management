@@ -6,6 +6,7 @@ import { useCanEdit } from "@/hooks/use-me";
 import { apiErrorMessage, safeJson } from "@/lib/api-client";
 import { useZodForm } from "@/hooks/use-form";
 import { returnSchema, type ReturnFormData } from "@/lib/schemas";
+import { buildLocationOptions } from "@/lib/location-options";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { FormInput, FormSelect, FormActions, LineItemArray, type FormSelectOption } from "@/components/ui/forms";
 import { toast } from "sonner";
@@ -25,6 +26,7 @@ interface ClosedIssue {
 interface LocationOption {
   id: string;
   name: string;
+  parentId: string | null;
   disabled: boolean;
 }
 
@@ -117,10 +119,7 @@ export default function DevolucoesPage() {
     label: `#${i.number}${i.ot ? ` · ${i.ot}` : ""} — ${i.destination}`,
   }));
 
-  const locationOptions: FormSelectOption[] = locations.map((l) => ({
-    value: l.id,
-    label: l.name,
-  }));
+  const locationOptions: FormSelectOption[] = buildLocationOptions(locations);
 
   const materialOptions: FormSelectOption[] = selectedIssue
     ? selectedIssue.items
