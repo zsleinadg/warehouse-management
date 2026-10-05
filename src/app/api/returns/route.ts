@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { authorize } from "@/lib/roles";
-import { addStock, recordMovement } from "@/lib/stock-ledger";
+import { addStock, getIssueOrigins, recordMovement } from "@/lib/stock-ledger";
 import { assertPlaceable } from "@/lib/locations";
 
 const itemSchema = z.object({
   materialId: z.uuid("Invalid material"),
-  locationId: z.uuid("Invalid location"),
   quantity: z.coerce.number().int().min(1, "Quantity must be at least 1"),
 });
 
@@ -103,25 +102,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  const locationIds = [...new Set(parsed.data.items.map((item) => item.locationId))];
-  const [materials, locations] = await Promise.all([
-    prisma.material.findMany({
-      where: { id: { in: parsed.data.items.map((item) => item.materialId) } },
-      select: { id: true, code: true, disabled: true },
-    }),
-    prisma.location.findMany({
-      where: { id: { in: locationIds } },
-      select: { id: true, name: true, disabled: true },
-    }),
-  ]);
-  const materialById = new Map(materials.map((m) => [m.id, m]));
-  const locationById = new Map(locations.map((l) => [l.id, l]));
+  // Merge duplicate material lines by summing (one line per material).
+  const merged = new Map<string, number>();
+  for (const item of parsed.data.items) {
+    merged.set(item.materialId, (merged.get(item.materialId) ?? 0) + item.quantity);
+  }
 
-  // Teto agregado por material (várias linhas do mesmo material somam) e
-  // @@unique([returnId, materialId, locationId]): mesma dupla material+local
-  // em duas linhas estouraria P2002 — devolva 409 em vez de 500.
-  const requestedByMaterial = new Map<string, number>();
-  const seenPairs = new Set<string>();
+  const materials = await prisma.material.findMany({
+    where: { id: { in: [...merged.keys()] } },
+    select: { id: true, code: true, disabled: true },
+  });
+  const materialById = new Map(materials.map((m) => [m.id, m]));
+
   for (const [index, item] of parsed.data.items.entries()) {
     const material = materialById.get(item.materialId);
     if (!material) {
@@ -136,45 +128,79 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         409,
       );
     }
-    const location = locationById.get(item.locationId);
-    if (!location || location.disabled) {
-      return invalid(
-        [{ field: `items.${index}.locationId`, message: "Location not found or disabled" }],
-        404,
-      );
-    }
-    const placeable = await assertPlaceable(prisma, location.id, item.materialId);
-    if (!placeable.ok) {
-      return invalid([{ field: `items.${index}.locationId`, message: placeable.reason }], 409);
-    }
+  }
+  for (const [materialId, quantity] of merged) {
+    const material = materialById.get(materialId);
     const returnable =
-      (fulfilledByMaterial.get(item.materialId) ?? 0) - (alreadyReturned.get(item.materialId) ?? 0);
-    const requestedSoFar = requestedByMaterial.get(item.materialId) ?? 0;
-    if (requestedSoFar + item.quantity > returnable) {
+      (fulfilledByMaterial.get(materialId) ?? 0) - (alreadyReturned.get(materialId) ?? 0);
+    if (quantity > returnable) {
       return invalid(
         [
           {
-            field: `items.${index}.quantity`,
-            message: `Only ${returnable} of "${material.code}" can still be returned from issue #${issue.number}`,
+            field: "items",
+            message: `Only ${returnable} of "${material?.code ?? materialId}" can still be returned from issue #${issue.number}`,
           },
         ],
         409,
       );
     }
-    requestedByMaterial.set(item.materialId, requestedSoFar + item.quantity);
-    const pairKey = `${item.materialId}::${item.locationId}`;
-    if (seenPairs.has(pairKey)) {
-      return invalid(
-        [
-          {
-            field: `items.${index}`,
-            message: "Duplicate material in the same location — merge into a single line",
-          },
-        ],
-        409,
-      );
+  }
+
+  // Every unit goes back where it left from (FIFO across origin locations).
+  const origins = await getIssueOrigins(prisma, issue.id);
+  interface Split {
+    materialId: string;
+    locationId: string;
+    quantity: number;
+  }
+  const splits: Split[] = [];
+  for (const [materialId, quantity] of merged) {
+    let remaining = quantity;
+    for (const origin of origins.get(materialId) ?? []) {
+      if (remaining <= 0) break;
+      const take = Math.min(origin.taken, remaining);
+      if (take <= 0) continue;
+      splits.push({ materialId, locationId: origin.locationId, quantity: take });
+      remaining -= take;
     }
-    seenPairs.add(pairKey);
+    if (remaining > 0) {
+      // Origin unknown or placement gone: fall back to top-balance location.
+      const top = await prisma.stock.findFirst({
+        where: { materialId, quantity: { gt: 0 } },
+        orderBy: { quantity: "desc" },
+        select: { locationId: true },
+      });
+      const fallbackId =
+        top?.locationId ??
+        (
+          await prisma.location.findFirst({
+            where: { disabled: false },
+            orderBy: { createdAt: "asc" },
+            select: { id: true },
+          })
+        )?.id;
+      if (!fallbackId) {
+        return invalid([{ field: "items", message: "No location available for return" }], 409);
+      }
+      splits.push({ materialId, locationId: fallbackId, quantity: remaining });
+    }
+  }
+
+  const splitLocationIds = [...new Set(splits.map((s) => s.locationId))];
+  const splitLocations = await prisma.location.findMany({
+    where: { id: { in: splitLocationIds } },
+    select: { id: true, name: true, disabled: true },
+  });
+  const splitLocationById = new Map(splitLocations.map((l) => [l.id, l]));
+  for (const split of splits) {
+    const location = splitLocationById.get(split.locationId);
+    if (!location || location.disabled) {
+      return invalid([{ field: "items", message: "Return location not found or disabled" }], 409);
+    }
+    const placeable = await assertPlaceable(prisma, location.id, split.materialId);
+    if (!placeable.ok) {
+      return invalid([{ field: "items", message: placeable.reason }], 409);
+    }
   }
 
   const created = await prisma.$transaction(async (tx) => {
@@ -184,10 +210,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         reason: parsed.data.reason,
         userId: auth.user.userId,
         items: {
-          create: parsed.data.items.map((item) => ({
-            materialId: item.materialId,
-            locationId: item.locationId,
-            quantity: item.quantity,
+          create: splits.map((split) => ({
+            materialId: split.materialId,
+            locationId: split.locationId,
+            quantity: split.quantity,
           })),
         },
       },
@@ -206,22 +232,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
     });
 
-    for (const item of parsed.data.items) {
+    for (const split of splits) {
       await addStock(tx, {
-        materialId: item.materialId,
-        locationId: item.locationId,
-        quantity: item.quantity,
+        materialId: split.materialId,
+        locationId: split.locationId,
+        quantity: split.quantity,
       });
       await recordMovement(tx, {
         type: "RETURN",
-        quantity: item.quantity,
-        materialId: item.materialId,
+        quantity: split.quantity,
+        materialId: split.materialId,
         userId: auth.user.userId,
         destination: issue.ot ?? issue.destination,
         reason: parsed.data.reason,
         issueId: issue.id,
         returnId: ret.id,
-        locationId: item.locationId,
+        locationId: split.locationId,
       });
     }
     return ret;
