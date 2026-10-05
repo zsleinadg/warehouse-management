@@ -53,7 +53,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         select: {
           quantity: true,
           fulfilledQuantity: true,
-          material: { select: { code: true, name: true, unit: true } },
+          material: { select: { id: true, code: true, name: true, unit: true } },
         },
       },
     },

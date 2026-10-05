@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { authorize } from "@/lib/roles";
+import { isValidNewParent, subtreeStockCount } from "@/lib/locations";
 
 const updateSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(120).optional(),
@@ -12,26 +13,6 @@ const updateSchema = z.object({
 
 function invalid(issues: { field: string; message: string }[], status: number) {
   return NextResponse.json({ errors: issues }, { status });
-}
-
-async function isDescendantOf(
-  locationId: string,
-  potentialAncestorId: string,
-  db: typeof prisma,
-): Promise<boolean> {
-  let current = await db.location.findUnique({
-    where: { id: locationId },
-    select: { id: true, parentId: true },
-  });
-  while (current && current.parentId) {
-    if (current.id === potentialAncestorId) return true;
-    if (current.parentId === potentialAncestorId) return true;
-    current = await db.location.findUnique({
-      where: { id: current.parentId },
-      select: { id: true, parentId: true },
-    });
-  }
-  return false;
 }
 
 /** Rename/move a location with anti-cycle protection. Operators and admins only. */
@@ -82,13 +63,31 @@ export async function PATCH(
   }
 
   if (parsed.data.parentId && parsed.data.parentId !== existing.parentId) {
-    const isDesc = await isDescendantOf(id, parsed.data.parentId, prisma);
-    if (isDesc) {
+    const newParent = await prisma.location.findUnique({
+      where: { id: parsed.data.parentId },
+      select: { id: true, disabled: true },
+    });
+    if (!newParent || newParent.disabled) {
       return invalid(
-        [{ field: "parentId", message: "Cannot set parent: would create cyclic reference" }],
+        [{ field: "parentId", message: "New parent not found or disabled" }],
+        404,
+      );
+    }
+    if (!(await isValidNewParent(prisma, id, parsed.data.parentId))) {
+      return invalid(
+        [{ field: "parentId", message: "Cannot move here: itself or its own descendant (cycle)" }],
         409,
       );
     }
+  }
+
+  // Moving across parents without an explicit position appends at the end
+  // of the new sibling list instead of keeping a colliding number.
+  let position = parsed.data.position ?? existing.position;
+  if (parsed.data.parentId && parsed.data.parentId !== existing.parentId && parsed.data.position === undefined) {
+    position = await prisma.location.count({
+      where: { parentId: parsed.data.parentId, disabled: false },
+    });
   }
 
   const updated = await prisma.location.update({
@@ -96,7 +95,7 @@ export async function PATCH(
     data: {
       name: parsed.data.name ?? existing.name,
       parentId: parsed.data.parentId ?? existing.parentId,
-      position: parsed.data.position ?? existing.position,
+      position,
       disabled: parsed.data.disabled ?? existing.disabled,
     },
     select: { id: true, name: true, parentId: true, position: true, disabled: true },
@@ -105,7 +104,9 @@ export async function PATCH(
   return NextResponse.json({ data: updated });
 }
 
-/** Delete a location (soft-delete when placements exist). Admins only. */
+/** Delete an empty location. Anything with stock in itself or its subtree
+ * is rejected with 409 so the operator transfers first — never cascade
+ * stock away silently. Admins only. */
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -116,20 +117,22 @@ export async function DELETE(
   const { id } = await params;
   const existing = await prisma.location.findUnique({
     where: { id },
-    select: { id: true, name: true, disabled: true, stocks: { select: { id: true } } },
+    select: { id: true, name: true, disabled: true },
   });
   if (!existing) {
     return invalid([{ field: "id", message: "Location not found" }], 404);
   }
 
-  if (existing.stocks.length > 0) {
-    await prisma.location.update({
-      where: { id },
-      data: { disabled: true },
-    });
-    return NextResponse.json(
-      { data: { id: existing.id, disabled: true }, message: "Location soft-deleted (disabled)" },
-      { status: 200 },
+  const { own, descendants } = await subtreeStockCount(prisma, id);
+  if (own + descendants > 0) {
+    return invalid(
+      [
+        {
+          field: "id",
+          message: `Location "${existing.name}" holds ${own} placement(s) here and ${descendants} in its subtree. Transfer items first, then delete.`,
+        },
+      ],
+      409,
     );
   }
 

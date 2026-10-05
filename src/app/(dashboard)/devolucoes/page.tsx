@@ -22,12 +22,6 @@ interface ClosedIssue {
   }[];
 }
 
-interface LocationOption {
-  id: string;
-  name: string;
-  disabled: boolean;
-}
-
 interface ReturnSummary {
   id: string;
   number: number;
@@ -39,6 +33,17 @@ interface ReturnSummary {
     material: { code: string; name: string; unit: string };
     location: { name: string };
   }[];
+}
+
+interface IssueOrigins {
+  origins: { materialId: string; locationId: string; locationName: string; taken: number }[];
+}
+
+async function fetchIssueOrigins(issueId: string): Promise<IssueOrigins> {
+  const response = await fetch(`/api/issues/${issueId}`);
+  if (!response.ok) throw new Error("Failed to load issue");
+  const body = await safeJson(response);
+  return (body as { data?: IssueOrigins })?.data ?? { origins: [] };
 }
 
 async function fetchClosedIssues(): Promise<ClosedIssue[]> {
@@ -55,14 +60,7 @@ async function fetchReturns(): Promise<ReturnSummary[]> {
   return (body as { data?: ReturnSummary[] })?.data ?? [];
 }
 
-async function fetchLocationOptions(): Promise<LocationOption[]> {
-  const response = await fetch("/api/locations");
-  if (!response.ok) throw new Error("Failed to load locations");
-  const body = await safeJson(response);
-  return ((body as { data?: LocationOption[] })?.data ?? []).filter((l: LocationOption) => !l.disabled);
-}
-
-const EMPTY_LINE = { materialId: "", locationId: "", quantity: 1 };
+const EMPTY_LINE = { materialId: "", quantity: 1 };
 
 export default function DevolucoesPage() {
   const queryClient = useQueryClient();
@@ -71,9 +69,19 @@ export default function DevolucoesPage() {
 
   const { data: issues = [] } = useQuery({ queryKey: ["issues", "CLOSED"], queryFn: fetchClosedIssues });
   const { data: returns = [] } = useQuery({ queryKey: ["returns"], queryFn: fetchReturns });
-  const { data: locations = [] } = useQuery({ queryKey: ["locations"], queryFn: fetchLocationOptions });
 
   const selectedIssue = issues.find((i) => i.id === selectedIssueId) ?? null;
+  const { data: originData } = useQuery({
+    queryKey: ["issue-origins", selectedIssueId],
+    queryFn: () => fetchIssueOrigins(selectedIssueId),
+    enabled: selectedIssueId !== "",
+  });
+  const originByMaterial = new Map<string, { locationName: string; taken: number }[]>();
+  for (const o of originData?.origins ?? []) {
+    const list = originByMaterial.get(o.materialId) ?? [];
+    list.push({ locationName: o.locationName, taken: o.taken });
+    originByMaterial.set(o.materialId, list);
+  }
 
   const form = useZodForm<ReturnFormData>(returnSchema, {
     defaultValues: {
@@ -117,11 +125,6 @@ export default function DevolucoesPage() {
     label: `#${i.number}${i.ot ? ` · ${i.ot}` : ""} — ${i.destination}`,
   }));
 
-  const locationOptions: FormSelectOption[] = locations.map((l) => ({
-    value: l.id,
-    label: l.name,
-  }));
-
   const materialOptions: FormSelectOption[] = selectedIssue
     ? selectedIssue.items
         .filter((item) => item.fulfilledQuantity > 0)
@@ -138,14 +141,6 @@ export default function DevolucoesPage() {
       label: "Material",
       placeholder: "Selecione...",
       options: materialOptions,
-      required: true,
-    },
-    {
-      key: "locationId" as const,
-      type: "select" as const,
-      label: "Local de retorno",
-      placeholder: "Selecione...",
-      options: locationOptions,
       required: true,
     },
     {
@@ -193,10 +188,16 @@ export default function DevolucoesPage() {
 
               {selectedIssue && (
                 <p className="text-xs text-muted-foreground">
-                  Itens atendidos na origem:{' '}
+                  Itens atendidos na origem (voltam para onde saíram):{' '}
                   {selectedIssue.items
                     .filter((item) => item.fulfilledQuantity > 0)
-                    .map((item) => `${item.material.code} ×${item.fulfilledQuantity}`)
+                    .map((item) => {
+                      const origins = originByMaterial.get(item.material.id) ?? [];
+                      const where = origins.length > 0
+                        ? origins.map((o) => o.locationName).join(" + ")
+                        : "origem…";
+                      return `${item.material.code} ×${item.fulfilledQuantity} → ${where}`;
+                    })
                     .join(" · ")}
                 </p>
               )}

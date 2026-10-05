@@ -44,7 +44,6 @@ export const returnSchema = z.object({
   reason: z.string().min(1, "Motivo é obrigatório"),
   items: z.array(z.object({
     materialId: z.string().min(1, "Material é obrigatório"),
-    locationId: z.string().min(1, "Local de retorno é obrigatório"),
     quantity: z.coerce.number().int().min(1, "Quantidade deve ser maior que zero"),
   })).min(1, "Pelo menos um item é obrigatório"),
 });

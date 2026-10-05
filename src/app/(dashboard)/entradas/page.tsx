@@ -7,6 +7,7 @@ import { useCanEdit } from "@/hooks/use-me";
 import { apiErrorMessage, formatCents, safeJson } from "@/lib/api-client";
 import { useZodForm } from "@/hooks/use-form";
 import { purchaseInvoiceSchema, type PurchaseInvoiceFormData } from "@/lib/schemas";
+import { buildLocationOptions } from "@/lib/location-options";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FormInput, FormDate, FormActions, LineItemArray, FormSelectOption } from "@/components/ui/forms";
@@ -165,10 +166,7 @@ function EntradasContent() {
     label: `${m.code} — ${m.name} (${m.unit})`,
   }));
 
-  const locationOptions: FormSelectOption[] = locations.map((l) => ({
-    value: l.id,
-    label: l.name,
-  }));
+  const locationOptions: FormSelectOption[] = buildLocationOptions(locations);
 
   const lineFields = [
     {
@@ -197,10 +195,9 @@ function EntradasContent() {
     },
     {
       key: "unitCostCents" as const,
-      type: "number" as const,
-      label: "Custo Unit. (centavos)",
-      placeholder: "0",
-      min: 0,
+      type: "money" as const,
+      label: "Custo unit. (R$)",
+      placeholder: "0,00",
       required: true,
     },
   ];

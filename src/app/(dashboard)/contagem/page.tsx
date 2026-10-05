@@ -142,7 +142,11 @@ export default function ContagemPage() {
                             <FormInput
                               {...form.register(`items.${index}.countedQuantity`)}
                               label=""
-                              type="number"
+                              type="text"
+                              inputMode="numeric"
+                              autoComplete="off"
+                              autoCapitalize="none"
+                              autoCorrect="off"
                               min={0}
                               disabled={!canEdit}
                               className="w-24"

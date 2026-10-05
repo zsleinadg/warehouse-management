@@ -7,6 +7,7 @@ import { useCanEdit } from "@/hooks/use-me";
 import { apiErrorMessage, safeJson } from "@/lib/api-client";
 import { useZodForm } from "@/hooks/use-form";
 import { issueSchema, type IssueFormData } from "@/lib/schemas";
+import { buildLocationOptions } from "@/lib/location-options";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ interface CatalogMaterial {
 interface LocationOption {
   id: string;
   name: string;
+  parentId: string | null;
   disabled: boolean;
 }
 
@@ -266,10 +268,7 @@ function SaidasContent() {
     label: `${m.code} — ${m.name} (${m.unit})`,
   }));
 
-  const locationOptions: FormSelectOption[] = locations.map((l) => ({
-    value: l.id,
-    label: l.name,
-  }));
+  const locationOptions: FormSelectOption[] = buildLocationOptions(locations);
 
   const lineFields = [
     {

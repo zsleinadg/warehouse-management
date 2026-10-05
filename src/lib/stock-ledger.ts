@@ -113,6 +113,52 @@ export async function totalOnHand(tx: LedgerTx, materialId: string): Promise<num
   return result._sum.quantity ?? 0;
 }
 
+export interface OriginAllocation {
+  locationId: string;
+  taken: number;
+}
+
+/**
+ * Where an issue took each material from, derived from its OUTBOUND
+ * movements (newest origin tracking). Falls back to the locations holding
+ * the most balance for old movements recorded without locationId.
+ */
+export async function getIssueOrigins(
+  tx: LedgerTx,
+  issueId: string,
+): Promise<Map<string, OriginAllocation[]>> {
+  const outbound = await tx.movement.findMany({
+    where: { issueId, type: "OUTBOUND" },
+    select: { materialId: true, quantity: true, locationId: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const byMaterial = new Map<string, OriginAllocation[]>();
+  for (const m of outbound) {
+    if (!m.locationId) continue;
+    const list = byMaterial.get(m.materialId) ?? [];
+    const slot = list.find((s) => s.locationId === m.locationId);
+    if (slot) slot.taken += m.quantity;
+    else list.push({ locationId: m.locationId, taken: m.quantity });
+    byMaterial.set(m.materialId, list);
+  }
+  // Fallback for pre-tracking issues: top-balance location per material.
+  const missing = new Set<string>();
+  const withOrigins = new Set(byMaterial.keys());
+  const allMaterials = [...new Set(outbound.map((m) => m.materialId))];
+  for (const materialId of allMaterials) {
+    if (!withOrigins.has(materialId)) missing.add(materialId);
+  }
+  for (const materialId of missing) {
+    const top = await tx.stock.findFirst({
+      where: { materialId, quantity: { gt: 0 } },
+      orderBy: { quantity: "desc" },
+      select: { locationId: true, quantity: true },
+    });
+    if (top) byMaterial.set(materialId, [{ locationId: top.locationId, taken: top.quantity }]);
+  }
+  return byMaterial;
+}
+
 /**
  * Moving-average unit cost in cents after an inbound batch.
  * Pure helper so costing stays consistent across entry points.

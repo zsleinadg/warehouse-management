@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { authorize } from "@/lib/roles";
-import { addStock, InsufficientBalanceError, recordMovement, removeStock, totalOnHand } from "@/lib/stock-ledger";
+import { addStock, getIssueOrigins, InsufficientBalanceError, recordMovement, removeStock, totalOnHand } from "@/lib/stock-ledger";
+import { assertPlaceable } from "@/lib/locations";
 
 const returnTargetSchema = z.object({
   materialId: z.uuid("Invalid material"),
@@ -75,7 +76,28 @@ export async function GET(
     return invalid([{ field: "id", message: "Issue not found" }], 404);
   }
 
-  return NextResponse.json({ data: issue });
+  // Where each material left from (for returns): origin locations + taken.
+  const origins = await getIssueOrigins(prisma, issue.id);
+  const originLocationIds = [...new Set([...origins.values()].flatMap((list) => list.map((o) => o.locationId)))];
+  const originLocations = await prisma.location.findMany({
+    where: { id: { in: originLocationIds } },
+    select: { id: true, name: true, parentId: true },
+  });
+  const originNameById = new Map(originLocations.map((l) => [l.id, l]));
+  const originList: { materialId: string; locationId: string; locationName: string; taken: number }[] = [];
+  for (const [materialId, list] of origins) {
+    for (const origin of list) {
+      const loc = originNameById.get(origin.locationId);
+      originList.push({
+        materialId,
+        locationId: origin.locationId,
+        locationName: loc?.name ?? origin.locationId,
+        taken: origin.taken,
+      });
+    }
+  }
+
+  return NextResponse.json({ data: { ...issue, origins: originList } });
 }
 
 /**
@@ -179,6 +201,10 @@ export async function PATCH(
             [{ field: "returnsTo", message: `Invalid return location for material ${materialId}` }],
             404,
           );
+        }
+        const placeable = await assertPlaceable(prisma, locationId, materialId);
+        if (!placeable.ok) {
+          return invalid([{ field: "returnsTo", message: placeable.reason }], 409);
         }
       }
     }

@@ -130,6 +130,16 @@
        overflow-x-auto). `clip` não cria scroll-container: sticky intacto. */
     overflow-x: clip;
   }
+  /* Rede de segurança: nenhum input numérico exibe spinners. O padrão do
+     projeto é type="text" + inputMode="numeric" (sem spinners por construção). */
+  input[type="number"] {
+    appearance: textfield;
+  }
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
   html {
     @apply font-sans;
   }
