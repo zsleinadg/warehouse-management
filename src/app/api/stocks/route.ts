@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { authorize } from "@/lib/roles";
+import { assertPlaceable } from "@/lib/locations";
 
 const createSchema = z.object({
   locationId: z.uuid("Invalid location"),
@@ -60,6 +61,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       data: { code: parsed.data.code, name: parsed.data.name },
       select: { id: true, name: true },
     }));
+
+  // New plaques go on leaf levels only; merging into an existing placement
+  // stays allowed so pre-rule addresses keep working.
+  const placeable = await assertPlaceable(prisma, location.id, material.id);
+  if (!placeable.ok) {
+    return invalid([{ field: "locationId", message: placeable.reason }], 409);
+  }
 
   const position = await prisma.stock.count({
     where: { locationId: location.id },

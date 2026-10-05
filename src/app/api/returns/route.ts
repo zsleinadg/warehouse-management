@@ -3,6 +3,7 @@ import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { authorize } from "@/lib/roles";
 import { addStock, recordMovement } from "@/lib/stock-ledger";
+import { assertPlaceable } from "@/lib/locations";
 
 const itemSchema = z.object({
   materialId: z.uuid("Invalid material"),
@@ -141,6 +142,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         [{ field: `items.${index}.locationId`, message: "Location not found or disabled" }],
         404,
       );
+    }
+    const placeable = await assertPlaceable(prisma, location.id, item.materialId);
+    if (!placeable.ok) {
+      return invalid([{ field: `items.${index}.locationId`, message: placeable.reason }], 409);
     }
     const returnable =
       (fulfilledByMaterial.get(item.materialId) ?? 0) - (alreadyReturned.get(item.materialId) ?? 0);

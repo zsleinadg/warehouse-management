@@ -3,6 +3,7 @@ import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { authorize } from "@/lib/roles";
 import { addStock, movingAverageCents, recordMovement, totalOnHand } from "@/lib/stock-ledger";
+import { assertPlaceable } from "@/lib/locations";
 
 const lineSchema = z.object({
   materialId: z.uuid("Invalid material"),
@@ -159,6 +160,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         ],
         409,
       );
+    }
+    const placeable = await assertPlaceable(prisma, location.id, line.materialId);
+    if (!placeable.ok) {
+      return invalid([{ field: `lines.${index}.locationId`, message: placeable.reason }], 409);
     }
   }
 
