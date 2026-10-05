@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "jest",
     "doctor": "node scripts/doctor.mjs",
+    "postinstall": "prisma generate",
     "db:seed": "tsx --env-file=.env.local prisma/seed.ts",
     "db:seed:admin": "tsx --env-file=.env.local prisma/admin.ts"
   },
