@@ -1,0 +1,30 @@
+name: pr-title
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize]
+
+# Title cannot be pre-filled by a template file: GitHub only pre-fills it
+# with the raw branch name. This job enforces the repo convention instead
+# (type(scope): subject, English), so titles arrive standardized.
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            refactor
+            test
+            chore
+            docs
+            style
+            perf
+            ci
+            deploy
+            release
+          requireScope: false

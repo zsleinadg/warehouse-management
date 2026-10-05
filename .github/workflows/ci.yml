@@ -1,0 +1,30 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Dummy URL: generate/typecheck need the var present, never connect.
+    # Real credentials live in Vercel env + local .env.local, never here.
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npx next typegen
+      - run: npx prisma generate
+      - run: npm test
+      - run: npx eslint .
+      - run: npx tsc --noEmit
+      - run: npm run build

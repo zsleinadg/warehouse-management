@@ -1,0 +1,239 @@
+generator client {
+  provider = "prisma-client"
+  output   = "./generated"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  OPERATOR
+  VIEWER
+}
+
+enum MovementType {
+  INBOUND
+  OUTBOUND
+  TRANSFER
+  ADJUSTMENT
+  RETURN
+}
+
+enum IssueStatus {
+  DRAFT
+  CLOSED
+  CANCELLED
+}
+
+enum IssueKind {
+  OBRA
+  EMERGENCIAL
+}
+
+model Location {
+  id        String     @id @default(uuid())
+  name      String
+  parentId  String?
+  parent    Location?  @relation("LocationTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Location[] @relation("LocationTree")
+  position  Int        @default(0)
+  qrCode      String?      @unique
+  disabled    Boolean      @default(false)
+  stocks      Stock[]
+  returnItems ReturnItem[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Material {
+  id                  String               @id @default(uuid())
+  code                String               @unique
+  name                String
+  unit                String               @default("UN")
+  minStock            Int                  @default(0)
+  costCents           Int                  @default(0)
+  disabled            Boolean              @default(false)
+  stocks               Stock[]
+  movements            Movement[]
+  purchaseInvoiceLines PurchaseInvoiceLine[]
+  issueItems           IssueItem[]
+  returnItems          ReturnItem[]
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+}
+
+model Stock {
+  id          String   @id @default(uuid())
+  materialId  String
+  material    Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  locationId  String
+  location    Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  quantity    Int      @default(0)
+  position    Int      @default(0)
+  notes       String?
+  needsReview Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([materialId, locationId])
+}
+
+model Movement {
+  id          String       @id @default(uuid())
+  type        MovementType
+  quantity    Int
+  materialId  String
+  material    Material     @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  userId      String?
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  destination String?
+  nfNumber    String?
+  reason      String?
+  issueId     String?
+  returnId    String?
+  locationId  String?
+  createdAt   DateTime     @default(now())
+
+  @@index([materialId])
+  @@index([locationId])
+  @@index([nfNumber])
+  @@index([issueId])
+  @@index([returnId])
+}
+
+model PurchaseInvoice {
+  id        String               @id @default(uuid())
+  number    String               @unique
+  supplier  String
+  issuedAt  DateTime
+  lines     PurchaseInvoiceLine[]
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+}
+
+model PurchaseInvoiceLine {
+  id            String          @id @default(uuid())
+  invoiceId     String
+  invoice       PurchaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  materialId    String
+  material      Material        @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  quantity      Int
+  unitCostCents Int
+  createdAt     DateTime        @default(now())
+
+  @@unique([invoiceId, materialId])
+  @@index([materialId])
+}
+
+model Issue {
+  id          String      @id @default(uuid())
+  number      Int         @unique @default(autoincrement())
+  ot          String?
+  kind        IssueKind   @default(OBRA)
+  vehiclePlate String?
+  nfNumber    String?
+  destination String
+  foreman     String?
+  notes       String?
+  status      IssueStatus @default(DRAFT)
+  cancelReason String?
+  cancelledAt DateTime?
+  userId      String?
+  user        User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  items       IssueItem[]
+  returns     Return[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([status])
+  @@index([ot])
+}
+
+model IssueItem {
+  id                String   @id @default(uuid())
+  issueId           String
+  issue             Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  materialId    String
+  material      Material @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  quantity      Int
+  fulfilledQuantity Int      @default(0)
+  isExtra       Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  additions     IssueItemAddition[]
+
+  @@unique([issueId, materialId])
+  @@index([materialId])
+}
+
+model IssueItemAddition {
+  id          String    @id @default(uuid())
+  issueItemId String
+  issueItem   IssueItem @relation(fields: [issueItemId], references: [id], onDelete: Cascade)
+  quantity    Int
+  userId      String?
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+
+  @@index([issueItemId])
+}
+
+model Return {
+  id        String       @id @default(uuid())
+  number    Int          @unique @default(autoincrement())
+  issueId   String
+  issue     Issue        @relation(fields: [issueId], references: [id], onDelete: Restrict)
+  reason    String
+  userId    String?
+  user      User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  items     ReturnItem[]
+  createdAt DateTime     @default(now())
+
+  @@index([issueId])
+}
+
+model ReturnItem {
+  id         String   @id @default(uuid())
+  returnId   String
+  return     Return   @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  materialId String
+  material   Material @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  quantity   Int
+  createdAt  DateTime @default(now())
+
+  @@unique([returnId, materialId, locationId])
+  @@index([materialId])
+}
+
+model User {
+  id        String    @id @default(uuid())
+  name      String
+  email     String    @unique
+  password  String // bcrypt hash, never plaintext; never include in select
+  role      Role      @default(VIEWER)
+  disabled  Boolean   @default(false)
+  sessions  Session[]
+  movements Movement[]
+  issues    Issue[]
+  returns   Return[]
+  issueItemAdditions IssueItemAddition[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Session {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique // SHA-256 of the refresh token; raw value never stored
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  replacedBy String? // id of the child session (rotation chain)
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}

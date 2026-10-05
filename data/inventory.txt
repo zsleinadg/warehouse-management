@@ -1,0 +1,267 @@
+P1 Left
+850402 Haste 1500MM
+850383 Haste 2000MM
+201534 Haste 2400MM
+
+P1 Right
+Baixo
+300647 Isolador Roldana
+990243 Para-Raios DH T 12KV
+300644 Isolador Poli Pilar
+531565 TP Uso Externo
+300662 Isolador Polim Pilar
+164706 Caixa Derivação
+251885 Braço Sup
+
+Meio
+990243 Para-Raios DH T 12KV
+300644 Isolador Poli Pilar 24KV
+300662 Isolador Polim Pilar 24KV
+164706 Caixa Derivação 160A
+
+Cima
+164518 Caixa Proteção Secundária
+164518 Caixa Proteção Secundária (2x)
+164518 Caixa Proteção Secundária (3x)
+164518 Caixa Proteção Secundária (4x)
+164487 Caixa Derivada
+
+
+P2 Left
+Baixo
+240110 Cantoneira L AZ 350x75x10MM
+201373 Pino Topo AZ
+240115 Cantoneira L AZ 50065x6, 5MM
+251884 Braço Tipo L
+251827 Braço Tipo L
+252055 Pino Isolador AZ Poste
+780729 Pino Isolador AZ Cruzeta
+780729 Pino Isolador AZ Cruzeta
+251801 Braço Suporte AZ
+
+Meio
+Meio 1
+9900014115 Descon 15KV
+Meio 2
+275695 Conector Perf
+780725 Fecho Fita Aço
+
+Meio 1 Continuando
+300031 Isolador Poste
+275020 Estribo Braço L
+780749 Pino Curto
+*170041 Elo Fusível*
+*171116 Elo Fusível*
+275897 Cobertura Isolante
+171103 Elo Fusível
+171099 Elo Fusível
+
+Meio 2 Continuando
+330982 Cabo BT
+274897 Conector Termo Reto
+280049 Caixa Med
+280049 Caixa Med (2x)
+170069 Elo Fusível
+171080 Elo Fusível
+171075 Elo Fusível
+171113 Elo Fusível
+171093 Elo Fusível
+171126 Elo Fusível
+
+Meio 3
+860342 Fita Isolante
+171078 Porta Fusível
+
+Cima
+280054 Caixa Proteção
+280054 Caixa Proteção (2x)
+
+P3 Right
+Baixo
+274862 Abraçadeira
+780724 Fita Aço
+850381 Cobertura
+275076 Conector
+275695 Conector
+*118447 Conector Perfurante Médio*
+
+P3 Right
+Meio 1
+251967 Braço Anti Bal
+275311 Emenda
+251798 Olhal
+251961 Grampo
+274916 Conector
+274950 Conector
+274649 Conector
+274711 Conector
+201484 Conector
+201483 Conector
+274988 Conector
+275361 Conector
+990257 Conector
+275022 Conector
+300645 Isolador
+264885 Abraçadeira Inox
+
+P3 Right
+Meio 2
+251805 Grampo
+275009 Abraçadeira
+251969 Suporte
+990254 Emenda
+340348 Fio
+340247 Fio
+274921 Conector MOD VII
+274919 Conector MOD V
+274918 Conector MOD IV
+274905 Conector MOD III
+274904 Conector MOD II
+274903 Conector MOD I
+275176 Conector Term
+274920 Conector MOD VI
+
+P3 Right
+Meio 3 Parte 1
+274861 Abraçadeira
+251804 Grampo
+
+Meio 3 Parte 2
+780716 Arruela
+780796 Parafuso
+780688 Parafuso
+
+Meio 4 Parte 1
+780912 Parafuso
+
+Meio 4 Parte 2
+171098 Elo Fusível
+
+P3 Right
+Cima
+275694 Conector Perfurante (1x)
+275694 Conector Perfurante (2x)
+
+Corredor P3-P4
+Baixo
+Meio 1
+
+Meio 2
+780702 Bucha
+274884 Prensa
+
+Meio 3
+910114 Envelope MED 3F
+
+Meio 4
+910113 Envelope MED 1F
+
+P4 Left
+Baixo
+780709 Arruela Quadrada
+780720 Arruela Redonda
+780710 Arruela Quadrada
+780711 Arruela Quadrada
+780707 Porca Quadrada
+251841 Suporte
+200250 Suporte Laço
+251814 Gancho
+251797 Olhal
+251817 Manilha Sapatilha
+251986 Espaçador
+171108 Suporte
+171108 Suporte
+
+Meio 1
+990293 Isolador
+990291 Isolador
+141266 Sec Unipolar
+141296 Sec
+171063 Lâmina
+275169 Conector
+251893 _confusão_ Sapatilha
+274639 Conector
+
+Meio 2
+164613 Fusível
+274985 Conector
+275249 _confusão_ Conector
+275203 Conector
+
+Meio 3
+275505 Cartucho
+130702 Disjuntor
+130839 Disjuntor
+130694 Disjuntor
+130716 Disjuntor
+130756 Disjuntor
+130808 Disjuntor
+274914 Conector
+310561 Presilha
+
+Meio 4
+274629 Cartucho
+130710 Disjuntor
+274630 Cartucho
+275185 Conector
+275194 Conector
+
+P5 Right
+Baixo
+780713 Arruela Quadrada
+780708 Porca Quadrada
+780645 Parafuso Cabo Quadrado
+780646 Parafuso Cabo Quadrado
+780647 Parafuso Cabo Quadrado
+780648 Parafuso Cabo Quadrado
+780649 Parafuso Cabo Quadrado
+780650 Parafuso Cabo Quadrado
+780781 Parafuso Rosca Dupla
+780659 Parafuso Cabo Quadrado
+780673 Parafuso Cabo Quadrado
+780660 Parafuso Cabo Quadrado
+251764 Alça
+251776 Alça
+251774 Alça
+252041 Alça
+252347 Alça
+251766 Alça
+251767 Alça
+251777 Alça
+251771 Alça
+252042 Alça
+251775 Alça
+251773 Alça
+
+Meio 1
+251781 Alça
+252049 Laço
+201363 Laço
+251779 Alça
+251783 Alça
+274874 Alça
+251786 Laço
+251940 Laço
+251768 Alça
+201362 Laço
+275019 Laço
+251935 Laço
+251785 Laço
+253265 Alça
+
+P6 Left
+Baixo
+780759 Parafuso Cabo Quadrado
+780653 Parafuso Cabo Quadrado
+780654 Parafuso Cabo Quadrado
+780655 Parafuso Cabo Quadrado
+780656 Parafuso Cabo Quadrado
+780657 Parafuso Cabo Quadrado
+780658 Parafuso Cabo Quadrado
+251782 Alça
+251765 Alça
+251939 Alça
+251780 Alça
+251769 Alça
+252018 Alça
+252009 Alça

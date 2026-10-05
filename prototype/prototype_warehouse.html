@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Warehouse Management</title>
+<style>
+:root{
+  --bg:#f5f4f0; --card:#ffffff; --border:#ddd9cf; --text:#22221f; --sub:#6b685f;
+  --accent:#0c447c; --accent-bg:#e6f1fb; --accent-border:#378add;
+  --danger:#a32d2d;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1c1c1a; --card:#262623; --border:#3c3c38; --text:#eceae2; --sub:#a3a196;
+    --accent:#85b7eb; --accent-bg:#0c2c4a; --accent-border:#378add;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1c1c1a; --card:#262623; --border:#3c3c38; --text:#eceae2; --sub:#a3a196;
+  --accent:#85b7eb; --accent-bg:#0c2c4a; --accent-border:#378add;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,sans-serif}
+.app{display:flex;height:100vh;max-width:1100px;margin:0 auto;gap:12px;padding:12px}
+.sidebar{width:280px;flex-shrink:0;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px;overflow-y:auto}
+.main{flex:1;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;overflow-y:auto;display:flex;flex-direction:column}
+h1{font-size:16px;margin:4px 6px 10px}
+.search-box{position:sticky;top:0;background:var(--card);padding-bottom:10px;z-index:2}
+input[type=text]{width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:14px}
+.results{margin-top:6px}
+.result-item{padding:7px 8px;border-radius:6px;cursor:pointer;font-size:13px;border:1px solid var(--border);margin-bottom:4px}
+.result-item:hover{background:var(--accent-bg)}
+.result-code{font-weight:600;color:var(--accent)}
+.result-path{color:var(--sub);font-size:11px}
+.tree-node{margin-left:10px}
+.tree-label{padding:6px 8px;border-radius:6px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:6px}
+.tree-label:hover{background:var(--accent-bg)}
+.tree-label.selected{background:var(--accent-bg);border:1px solid var(--accent-border);color:var(--accent);font-weight:600}
+.caret{width:10px;display:inline-block;color:var(--sub);font-size:10px}
+.breadcrumb{color:var(--sub);font-size:12px;margin-bottom:8px}
+.item-row{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:var(--bg);cursor:grab}
+.item-row.dragging{opacity:0.4}
+.item-row.dropline{border-top:2px solid var(--accent)}
+.drag-handle{color:var(--sub);font-size:14px;user-select:none}
+.item-code{font-weight:600;color:var(--accent);min-width:80px;font-size:13px}
+.item-name{font-size:13px}
+.empty{color:var(--sub);font-size:13px;padding:20px;text-align:center}
+.highlight{animation:flash 1.4s ease}
+@keyframes flash{0%{background:var(--accent-bg)}100%{background:var(--bg)}}
+.hint{font-size:11px;color:var(--sub);margin-bottom:10px}
+.panel-header{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.btn{padding:7px 12px;border-radius:8px;border:1px solid var(--accent-border);background:var(--accent-bg);color:var(--accent);font-size:13px;cursor:pointer;font-weight:600}
+.btn:hover{filter:brightness(1.05)}
+.btn-danger{background:transparent;border:1px solid var(--border);color:var(--danger);padding:5px 8px;font-size:12px;border-radius:6px;cursor:pointer}
+.add-form{display:none;gap:8px;padding:10px;border:1px dashed var(--border);border-radius:8px;margin-bottom:10px;background:var(--bg)}
+.add-form.open{display:flex;flex-wrap:wrap}
+.add-form input{flex:1;min-width:120px;padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text);font-size:13px}
+.add-form .error{width:100%;color:var(--danger);font-size:12px}
+.item-row{justify-content:space-between}
+.item-row .item-name{flex:1}
+::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar" id="sidebar">
+    <h1>Warehouse Management</h1>
+    <div id="tree"></div>
+  </div>
+  <div class="main">
+    <div class="search-box">
+      <input type="text" id="search" placeholder="Buscar por código ou nome...">
+      <div class="results" id="results"></div>
+    </div>
+    <div class="panel-header">
+      <div class="breadcrumb" id="breadcrumb"></div>
+      <button class="btn" id="toggleAdd" style="display:none">+ Adicionar item</button>
+    </div>
+    <div class="add-form" id="addForm">
+      <input type="text" id="newCodigo" placeholder="Código">
+      <input type="text" id="newNome" placeholder="Nome do item">
+      <button class="btn" id="confirmAdd">Salvar</button>
+      <div class="error" id="addError"></div>
+    </div>
+    <div class="hint" id="hint"></div>
+    <div id="items"></div>
+  </div>
+</div>
+<script>
+const DEFAULT_DATA = [
+{id:'p1',name:'P1',children:[
+  {id:'p1-left',name:'Left',items:[
+    {codigo:'850402',nome:'Haste 1500MM'},
+    {codigo:'850383',nome:'Haste 2000MM'},
+    {codigo:'201534',nome:'Haste 2400MM'}]},
+  {id:'p1-right',name:'Right',children:[
+    {id:'p1-right-baixo',name:'Baixo',items:[
+      {codigo:'300647',nome:'Isolador Roldana'},
+      {codigo:'990243',nome:'Para-Raios DH T 12KV'},
+      {codigo:'300644',nome:'Isolador Poli Pilar'},
+      {codigo:'531565',nome:'TP Uso Externo'}]},
+    {id:'p1-right-meio',name:'Meio',items:[
+      {codigo:'990243',nome:'Para-Raios DH T 12KV'},
+      {codigo:'300662',nome:'Isolador Polim Pilar 24KV'},
+      {codigo:'164706',nome:'Caixa Derivação 160A'}]},
+    {id:'p1-right-cima',name:'Cima',items:[
+      {codigo:'164518',nome:'Caixa Proteção Secundária'},
+      {codigo:'164487',nome:'Caixa Derivada'}]}
+  ]}
+]},
+{id:'p2',name:'P2',children:[
+  {id:'p2-left',name:'Left',children:[
+    {id:'p2-left-baixo',name:'Baixo',items:[
+      {codigo:'240110',nome:'Cantoneira L AZ 350x75x10MM'},
+      {codigo:'201373',nome:'Pino Topo AZ'},
+      {codigo:'251884',nome:'Braço Tipo L'},
+      {codigo:'780729',nome:'Pino Isolador AZ Cruzeta'}]},
+    {id:'p2-left-meio',name:'Meio',children:[
+      {id:'p2-left-meio-1',name:'Meio 1',items:[
+        {codigo:'9900014115',nome:'Descon 15KV'},
+        {codigo:'300031',nome:'Isolador Poste'},
+        {codigo:'171103',nome:'Elo Fusível'},
+        {codigo:'171099',nome:'Elo Fusível'}]},
+      {id:'p2-left-meio-2',name:'Meio 2',items:[
+        {codigo:'275695',nome:'Conector Perf'},
+        {codigo:'330982',nome:'Cabo BT'},
+        {codigo:'280049',nome:'Caixa Med'},
+        {codigo:'171080',nome:'Elo Fusível'}]},
+      {id:'p2-left-meio-3',name:'Meio 3',items:[
+        {codigo:'860342',nome:'Fita Isolante'},
+        {codigo:'171078',nome:'Porta Fusível'}]}
+    ]},
+    {id:'p2-left-cima',name:'Cima',items:[
+      {codigo:'280054',nome:'Caixa Proteção'}]}
+  ]}
+]},
+{id:'p3',name:'P3',children:[
+  {id:'p3-right',name:'Right',children:[
+    {id:'p3-right-baixo',name:'Baixo',items:[
+      {codigo:'274862',nome:'Abraçadeira'},
+      {codigo:'780724',nome:'Fita Aço'},
+      {codigo:'118447',nome:'Conector Perfurante Médio'}]},
+    {id:'p3-right-meio3',name:'Meio 3',children:[
+      {id:'p3-right-meio3-p1',name:'Parte 1',items:[
+        {codigo:'274861',nome:'Abraçadeira'},
+        {codigo:'251804',nome:'Grampo'}]},
+      {id:'p3-right-meio3-p2',name:'Parte 2',items:[
+        {codigo:'780716',nome:'Arruela'},
+        {codigo:'780796',nome:'Parafuso'},
+        {codigo:'780688',nome:'Parafuso'}]}
+    ]},
+    {id:'p3-right-cima',name:'Cima',items:[
+      {codigo:'275694',nome:'Conector Perfurante'}]}
+  ]}
+]},
+{id:'p4',name:'P4',children:[
+  {id:'p4-left',name:'Left',children:[
+    {id:'p4-left-baixo',name:'Baixo',items:[
+      {codigo:'780709',nome:'Arruela Quadrada'},
+      {codigo:'251841',nome:'Suporte'},
+      {codigo:'251817',nome:'Manilha Sapatilha'}]},
+    {id:'p4-left-meio1',name:'Meio 1',items:[
+      {codigo:'990293',nome:'Isolador'},
+      {codigo:'141266',nome:'Sec Unipolar'},
+      {codigo:'275169',nome:'Conector'}]}
+  ]}
+]},
+{id:'p5',name:'P5',children:[
+  {id:'p5-right',name:'Right',items:[
+    {codigo:'780713',nome:'Arruela Quadrada'},
+    {codigo:'251764',nome:'Alça'},
+    {codigo:'251776',nome:'Alça'}]}
+]},
+{id:'p6',name:'P6',children:[
+  {id:'p6-left',name:'Left',items:[
+    {codigo:'780759',nome:'Parafuso Cabo Quadrado'},
+    {codigo:'251782',nome:'Alça'}]}
+]}
+];
+
+let data;
+try{
+  const saved = localStorage.getItem('almox-data');
+  data = saved ? JSON.parse(saved) : JSON.parse(JSON.stringify(DEFAULT_DATA));
+}catch(e){ data = JSON.parse(JSON.stringify(DEFAULT_DATA)); }
+
+let selectedId = null;
+let expanded = new Set();
+let dragIndex = null;
+
+function save(){
+  try{ localStorage.setItem('almox-data', JSON.stringify(data)); }catch(e){}
+}
+
+function walk(nodes, fn, parents=[]){
+  for(const n of nodes){
+    fn(n, parents);
+    if(n.children) walk(n.children, fn, [...parents, n]);
+  }
+}
+
+function findNode(id){
+  let found=null, path=null;
+  walk(data, (n,parents)=>{ if(n.id===id){found=n; path=[...parents,n];} });
+  return {node:found, path};
+}
+
+function buildIndex(){
+  const idx=[];
+  walk(data, (n,parents)=>{
+    if(n.items){
+      const pathNames = parents.map(p=>p.name).concat(n.name).join(' \u2192 ');
+      n.items.forEach(it=>idx.push({...it, nodeId:n.id, pathNames}));
+    }
+  });
+  return idx;
+}
+
+function renderTree(){
+  const container = document.getElementById('tree');
+  container.innerHTML='';
+  container.appendChild(renderNodes(data, 0));
+}
+
+function renderNodes(nodes, depth){
+  const wrap = document.createElement('div');
+  nodes.forEach(n=>{
+    const hasChildren = n.children && n.children.length;
+    const row = document.createElement('div');
+    row.className='tree-label'+(n.id===selectedId?' selected':'');
+    row.style.marginLeft = (depth*10)+'px';
+    const caret = document.createElement('span');
+    caret.className='caret';
+    caret.textContent = hasChildren ? (expanded.has(n.id)?'\u25be':'\u25b8') : '';
+    row.appendChild(caret);
+    const label = document.createElement('span');
+    label.textContent = n.name;
+    row.appendChild(label);
+    row.onclick = ()=>{
+      if(hasChildren){
+        if(expanded.has(n.id)) expanded.delete(n.id); else expanded.add(n.id);
+        renderTree();
+      }
+      if(n.items){
+        selectedId = n.id;
+        renderTree();
+        renderItems();
+      }
+    };
+    wrap.appendChild(row);
+    if(hasChildren && expanded.has(n.id)){
+      wrap.appendChild(renderNodes(n.children, depth+1));
+    }
+  });
+  return wrap;
+}
+
+function closeAddForm(){
+  document.getElementById('addForm').classList.remove('open');
+  document.getElementById('addError').textContent='';
+  document.getElementById('newCodigo').value='';
+  document.getElementById('newNome').value='';
+}
+
+function renderItems(){
+  const {node, path} = findNode(selectedId);
+  const breadcrumb = document.getElementById('breadcrumb');
+  const hint = document.getElementById('hint');
+  const container = document.getElementById('items');
+  const toggleAdd = document.getElementById('toggleAdd');
+  container.innerHTML='';
+  closeAddForm();
+  if(!node){
+    breadcrumb.textContent=''; hint.textContent=''; toggleAdd.style.display='none';
+    container.innerHTML = '<div class="empty">Selecione uma localização na árvore ou busque um item.</div>';
+    return;
+  }
+  toggleAdd.style.display='inline-block';
+  breadcrumb.textContent = path.map(p=>p.name).join(' \u2192 ');
+  hint.textContent = 'Arraste os itens pelo ícone \u2807 para reordenar.';
+  if(node.items.length===0){
+    container.innerHTML = '<div class="empty">Nenhum item nesta localização ainda.</div>';
+  }
+  node.items.forEach((it, idx)=>{
+    const row = document.createElement('div');
+    row.className='item-row';
+    row.draggable = true;
+    row.dataset.idx = idx;
+    row.innerHTML = '<span class="drag-handle">\u2807</span><span class="item-code">'+it.codigo+'</span><span class="item-name">'+it.nome+'</span><button class="btn-danger" data-remove="'+idx+'">Remover</button>';
+    row.querySelector('[data-remove]').onclick = (ev)=>{
+      ev.stopPropagation();
+      if(confirm('Remover "'+it.nome+'" ('+it.codigo+') desta localização?')){
+        node.items.splice(idx,1);
+        save();
+        renderItems();
+      }
+    };
+    row.ondragstart = (e)=>{ dragIndex = idx; row.classList.add('dragging'); };
+    row.ondragend = ()=>{ row.classList.remove('dragging'); document.querySelectorAll('.dropline').forEach(el=>el.classList.remove('dropline')); };
+    row.ondragover = (e)=>{ e.preventDefault(); row.classList.add('dropline'); };
+    row.ondragleave = ()=>{ row.classList.remove('dropline'); };
+    row.ondrop = (e)=>{
+      e.preventDefault();
+      row.classList.remove('dropline');
+      const targetIdx = idx;
+      if(dragIndex===null || dragIndex===targetIdx) return;
+      const arr = node.items;
+      const [moved] = arr.splice(dragIndex,1);
+      arr.splice(targetIdx,0,moved);
+      save();
+      renderItems();
+    };
+    container.appendChild(row);
+  });
+}
+
+function jumpTo(nodeId, codigo){
+  const {path} = findNode(nodeId);
+  path.forEach(p=>expanded.add(p.id));
+  selectedId = nodeId;
+  renderTree();
+  renderItems();
+  setTimeout(()=>{
+    document.querySelectorAll('.item-code').forEach(el=>{
+      if(el.textContent===codigo){
+        el.parentElement.classList.add('highlight');
+        el.parentElement.scrollIntoView({block:'center'});
+      }
+    });
+  },50);
+}
+
+document.getElementById('search').addEventListener('input', (e)=>{
+  const q = e.target.value.trim().toLowerCase();
+  const results = document.getElementById('results');
+  results.innerHTML='';
+  if(!q) return;
+  const idx = buildIndex();
+  const matches = idx.filter(it=> it.codigo.toLowerCase().includes(q) || it.nome.toLowerCase().includes(q)).slice(0,30);
+  if(matches.length===0){
+    results.innerHTML = '<div class="empty">Nenhum item encontrado.</div>';
+    return;
+  }
+  matches.forEach(m=>{
+    const div = document.createElement('div');
+    div.className='result-item';
+    div.innerHTML = '<span class="result-code">'+m.codigo+'</span> '+m.nome+'<div class="result-path">'+m.pathNames+'</div>';
+    div.onclick = ()=>{ jumpTo(m.nodeId, m.codigo); document.getElementById('search').value=''; results.innerHTML=''; };
+    results.appendChild(div);
+  });
+});
+
+document.getElementById('toggleAdd').onclick = ()=>{
+  const form = document.getElementById('addForm');
+  form.classList.toggle('open');
+  if(form.classList.contains('open')) document.getElementById('newCodigo').focus();
+};
+
+document.getElementById('confirmAdd').onclick = ()=>{
+  const codigo = document.getElementById('newCodigo').value.trim();
+  const nome = document.getElementById('newNome').value.trim();
+  const errorEl = document.getElementById('addError');
+  if(!codigo || !nome){
+    errorEl.textContent = 'Preencha código e nome antes de salvar.';
+    return;
+  }
+  const {node} = findNode(selectedId);
+  if(!node) return;
+  node.items.push({codigo, nome});
+  save();
+  renderItems();
+};
+
+renderTree();
+renderItems();
+</script>
+</body>
+</html>
