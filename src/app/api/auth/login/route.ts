@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { comparePassword, generateRefreshToken, hashRefreshToken, refreshExpiresAt } from "@/lib/auth";
+import { purgeSessions } from "@/lib/sessions";
 import {
   setAuthCookies,
   signAccessToken,
@@ -47,6 +48,10 @@ export async function POST(request: Request): Promise<NextResponse> {
       { status: 401 },
     );
   }
+
+  // Opportunistic housekeeping: drop this user's expired sessions and
+  // long-revoked ones so the table stops growing on every login.
+  await purgeSessions(prisma, user.id);
 
   const refreshToken = generateRefreshToken();
   await prisma.session.create({

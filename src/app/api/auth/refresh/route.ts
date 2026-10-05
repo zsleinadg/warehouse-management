@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { generateRefreshToken, hashRefreshToken, refreshExpiresAt } from "@/lib/auth";
+import { purgeSessions } from "@/lib/sessions";
 import {
   REFRESH_COOKIE,
   clearAuthCookies,
@@ -80,6 +81,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const nextRefresh = generateRefreshToken();
+  // Same opportunistic cleanup as login, before rotating.
+  await purgeSessions(prisma, session.userId);
   const created = await prisma.session.create({
     data: {
       userId: session.userId,

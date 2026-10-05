@@ -144,6 +144,22 @@ Regras que evitam os incidentes já ocorridos:
 3. Mudança de IP do PC (DHCP) → atualizar `allowedDevOrigins` (`next.config.ts`)
    e o endereço no celular.
 
+### Retenção e purge de sessões
+
+Cada login cria 1 linha em `Session`; cada rotação, outra; nada se apagava
+sozinho. Limpeza oportunista + agendada (retenção: expiradas sempre,
+revogadas após 30d — preserva a janela anti-roubo):
+
+- login e refresh apagam as expiradas/revogadas antigas do próprio usuário
+  (`purgeSessions` em `src/lib/sessions.ts`);
+- `POST /api/auth/sessions/purge` (Bearer `CRON_SECRET` ou ADMIN) apaga
+  globalmente e responde `{ purged, at }` — idempotente;
+- cron-job.org: POST diário 03:00 America/Sao_Paulo com header
+  `Authorization: Bearer <CRON_SECRET>`;
+- indo para a Vercel: remover `COOKIE_SECURE=false` (HTTPS), configurar
+  `AUTH_SECRET`, `DATABASE_URL` (Neon pooled), `CRON_SECRET` e
+  `ADMIN_EMAIL/ADMIN_PASSWORD` no painel.
+
 ## 7. Troubleshooting
 
 | Sintoma | Causa provável | Ação |
