@@ -9,7 +9,7 @@ import { materialSchema, type MaterialFormData } from "@/lib/schemas";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FormInput, FormSelect, FormActions } from "@/components/ui/forms";
+import { FormInput, FormMoneyInput, FormSelect, FormActions } from "@/components/ui/forms";
 import { toast } from "sonner";
 import { Edit2, Trash2 } from "lucide-react";
 
@@ -159,17 +159,17 @@ export default function MateriaisPage() {
                 <FormInput
                   {...form.register("minStock", { valueAsNumber: true })}
                   label="Estoque Mínimo"
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
                   placeholder="0"
                   min={0}
                   error={form.formState.errors.minStock?.message}
                 />
-                <FormInput
-                  {...form.register("costCents", { valueAsNumber: true })}
-                  label="Custo (centavos)"
-                  type="number"
-                  placeholder="0"
-                  min={0}
+                <FormMoneyInput
+                  label="Custo (R$)"
+                  valueCents={form.watch("costCents") ?? 0}
+                  onChangeCents={(cents) => form.setValue("costCents", cents, { shouldValidate: true })}
                   error={form.formState.errors.costCents?.message}
                 />
               </div>

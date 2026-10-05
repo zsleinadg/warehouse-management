@@ -195,10 +195,9 @@ function EntradasContent() {
     },
     {
       key: "unitCostCents" as const,
-      type: "number" as const,
-      label: "Custo Unit. (centavos)",
-      placeholder: "0",
-      min: 0,
+      type: "money" as const,
+      label: "Custo unit. (R$)",
+      placeholder: "0,00",
       required: true,
     },
   ];

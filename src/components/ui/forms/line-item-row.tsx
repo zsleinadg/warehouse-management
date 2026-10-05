@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Trash2 } from "lucide-react";
 import { FormSelect, FormSelectOption } from "./form-select";
 import { FormInput } from "./form-input";
+import { FormMoneyInput } from "./form-money-input";
 
 export interface LineItemRowProps<T extends Record<string, unknown>> {
   item: T;
@@ -19,7 +20,7 @@ export interface LineItemRowProps<T extends Record<string, unknown>> {
 
 export interface LineItemFieldConfig<T> {
   key: keyof T;
-  type: "select" | "input" | "number";
+  type: "select" | "input" | "number" | "money";
   label: string;
   placeholder?: string;
   options?: FormSelectOption[];
@@ -28,6 +29,15 @@ export interface LineItemFieldConfig<T> {
   min?: number;
   max?: number;
   step?: number;
+}
+
+function sanitizeInteger(raw: string): number {
+  const digits = raw.replace(/\D/g, "");
+  return digits ? parseInt(digits, 10) : 0;
+}
+
+function blockExponentKeys(event: React.KeyboardEvent<HTMLInputElement>): void {
+  if (["e", "E", "+", "-"].includes(event.key)) event.preventDefault();
 }
 
 export function LineItemRow<T extends Record<string, unknown>>({
@@ -56,14 +66,25 @@ export function LineItemRow<T extends Record<string, unknown>>({
           ) : field.type === "number" ? (
             <FormInput
               label={field.label}
-              type="number"
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              autoCapitalize="none"
+              autoCorrect="off"
               placeholder={field.placeholder}
               value={(item[field.key] as number) ?? ""}
-              onChange={(e) => onUpdate(index, { [field.key]: Number(e.target.value) || 0 } as Partial<T>)}
+              onChange={(e) =>
+                onUpdate(index, { [field.key]: sanitizeInteger(e.target.value) } as Partial<T>)
+              }
+              onKeyDown={blockExponentKeys}
               required={field.required}
-              min={field.min}
-              max={field.max}
-              step={field.step}
+            />
+          ) : field.type === "money" ? (
+            <FormMoneyInput
+              label={field.label}
+              valueCents={(item[field.key] as number) ?? 0}
+              onChangeCents={(cents) => onUpdate(index, { [field.key]: cents } as Partial<T>)}
+              required={field.required}
             />
           ) : (
             <FormInput
