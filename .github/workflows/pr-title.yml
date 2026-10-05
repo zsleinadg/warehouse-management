@@ -26,4 +26,5 @@ jobs:
             perf
             ci
             deploy
+            release
           requireScope: false
