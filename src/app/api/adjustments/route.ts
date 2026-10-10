@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { authorize } from "@/lib/roles";
-import { recordMovement } from "@/lib/stock-ledger";
 import { assertPlaceable } from "@/lib/locations";
 
 const itemSchema = z.object({
@@ -74,55 +73,81 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  const result = await prisma.$transaction(async (tx) => {
-    const adjustments = [];
-    for (const item of parsed.data.items) {
-      const stock = await tx.stock.findUnique({
-        where: {
-          materialId_locationId: { materialId: item.materialId, locationId: location.id },
-        },
-        select: { id: true, quantity: true },
-      });
-      const systemQuantity = stock?.quantity ?? 0;
-      const difference = item.countedQuantity - systemQuantity;
-      if (difference === 0) continue;
+  // Single pre-read outside the transaction: per-item awaits inside an
+  // interactive transaction exceed the 5s default over pooled latency
+  // (P2028) once a count has more than a handful of lines.
+  const existingStocks = await prisma.stock.findMany({
+    where: {
+      locationId: location.id,
+      materialId: { in: parsed.data.items.map((item) => item.materialId) },
+    },
+    select: { id: true, materialId: true, quantity: true },
+  });
+  const stockByMaterial = new Map(existingStocks.map((s) => [s.materialId, s]));
 
-      if (stock) {
-        await tx.stock.update({
-          where: { id: stock.id },
-          data: { quantity: item.countedQuantity },
-          select: { id: true },
-        });
-      } else {
-        const position = await tx.stock.count({ where: { locationId: location.id } });
-        await tx.stock.create({
+  const divergent = [];
+  for (const item of parsed.data.items) {
+    const systemQuantity = stockByMaterial.get(item.materialId)?.quantity ?? 0;
+    const difference = item.countedQuantity - systemQuantity;
+    if (difference !== 0) {
+      divergent.push({ item, systemQuantity, difference });
+    }
+  }
+
+  let adjustments: { materialId: string; systemQuantity: number; countedQuantity: number; difference: number; position: number }[] = [];
+  if (divergent.length > 0) {
+    const basePosition = await prisma.stock.count({ where: { locationId: location.id } });
+    adjustments = divergent.map(({ item, systemQuantity, difference }, i) => ({
+      materialId: item.materialId,
+      systemQuantity,
+      countedQuantity: item.countedQuantity,
+      difference,
+      position: basePosition + i,
+    }));
+
+    // One batched transaction instead of N sequential round-trips.
+    await prisma.$transaction(
+      adjustments.flatMap((adj) => {
+        const stock = stockByMaterial.get(adj.materialId);
+        const write = stock
+          ? prisma.stock.update({
+              where: { id: stock.id },
+              data: { quantity: adj.countedQuantity },
+              select: { id: true },
+            })
+          : prisma.stock.create({
+              data: {
+                materialId: adj.materialId,
+                locationId: location.id,
+                quantity: adj.countedQuantity,
+                position: adj.position,
+              },
+              select: { id: true },
+            });
+        const movement = prisma.movement.create({
           data: {
-            materialId: item.materialId,
+            type: "ADJUSTMENT",
+            quantity: adj.difference,
+            materialId: adj.materialId,
+            userId: auth.user.userId,
+            destination: location.name,
+            reason: parsed.data.reason,
             locationId: location.id,
-            quantity: item.countedQuantity,
-            position,
           },
           select: { id: true },
         });
-      }
-      await recordMovement(tx, {
-        type: "ADJUSTMENT",
-        quantity: difference,
-        materialId: item.materialId,
-        userId: auth.user.userId,
-        destination: location.name,
-        reason: parsed.data.reason,
-        locationId: location.id,
-      });
-      adjustments.push({
-        materialId: item.materialId,
-        systemQuantity,
-        countedQuantity: item.countedQuantity,
-        difference,
-      });
-    }
-    return adjustments;
-  });
+        return [write, movement];
+      }),
+      { maxWait: 15000, timeout: 60000 },
+    );
+  }
+
+  const result = adjustments.map(({ materialId, systemQuantity, countedQuantity, difference }) => ({
+    materialId,
+    systemQuantity,
+    countedQuantity,
+    difference,
+  }));
 
   return NextResponse.json(
     { data: { locationId: location.id, locationName: location.name, adjustments: result } },
