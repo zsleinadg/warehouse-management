@@ -64,6 +64,27 @@ model Material {
   updatedAt            DateTime             @updatedAt
 }
 
+/**
+ * Supplier catalog (boss's spreadsheet, 16k+ rows). Standalone reference
+ * table, changed only when the source file is re-imported. It is the source
+ * of truth for code/name lookups; warehouse Material/Stock stay independent
+ * and record only what is physically on hand.
+ */
+model CatalogMaterial {
+  id              String   @id @default(uuid())
+  code            String
+  plant           String   @default("")
+  name            String
+  storageLocation String   @default("")
+  unit            String   @default("UN")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([code, plant])
+  @@index([code])
+  @@index([name])
+}
+
 model Stock {
   id          String   @id @default(uuid())
   materialId  String
