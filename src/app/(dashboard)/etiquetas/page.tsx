@@ -1,25 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiErrorMessage, safeJson } from "@/lib/api-client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FormInput } from "@/components/ui/forms";
-import { Barcode } from "@/components/barcode";
 import { toast } from "sonner";
+import {
+  BARCODE_FONT,
+  LABEL_PRINT,
+  LargeLabel,
+  SMALL_PER_PAGE,
+  SmallSheet,
+  type LabelItem,
+} from "@/components/excel-labels";
 
-interface CatalogOption {
+interface CatalogOption extends LabelItem {
   id: string;
   code: string;
   plant: string;
-  name: string;
-  unit: string;
 }
-
-/** Labels per A4 sheet on the small batch layout (matches the 4x4 grid). */
-const SMALL_PER_PAGE = 16;
 
 function useDebounced(value: string, delayMs: number): string {
   const [debounced, setDebounced] = useState(value);
@@ -38,58 +40,44 @@ async function searchCatalog(q: string): Promise<CatalogOption[]> {
   return body.data ?? [];
 }
 
-/** Prefer the BLCT row when a code exists in several plants. */
 function preferBlct(options: CatalogOption[], code: string): CatalogOption | null {
   const exact = options.filter((o) => o.code === code);
   if (exact.length === 0) return null;
   return exact.find((o) => o.plant === "BLCT") ?? exact[0];
 }
 
-/** Print rules: A4 with fixed millimeter geometry so labels land exactly. */
+/** Garante que a fonte do código de barras carregou ANTES de abrir o diálogo de impressão. */
+async function printLabels(): Promise<void> {
+  try {
+    await document.fonts.load(`36pt ${BARCODE_FONT}`, "*0123456789ABC*");
+    await document.fonts.ready;
+  } catch {
+    // segue para imprimir mesmo assim
+  }
+  window.print();
+}
+
 const PRINT_CSS = `
-@page { size: A4 portrait; margin: 7mm; }
-.etq-small-sheet { display: grid; grid-template-columns: repeat(4, 1fr); }
-.etq-small {
-  width: 49mm;
-  height: 70.7mm;
-  border: 0.4mm solid #000;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 2mm;
-  overflow: hidden;
-  gap: 1mm;
-  color: #000;
-  background: #fff;
-  -webkit-print-color-adjust: exact;
-  print-color-adjust: exact;
-}
-.etq-small .etq-code { font-family: ui-monospace, monospace; font-size: 11pt; font-weight: 700; }
-.etq-small .etq-name { font-size: 8pt; line-height: 1.2; }
-.etq-small .etq-unit { font-size: 7pt; color: #333; }
-.etq-small svg { width: 44mm; height: 11mm; }
-.etq-large {
-  width: 196mm;
-  min-height: 260mm;
-  border: 1mm solid #000;
-  padding: 8mm;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  color: #000;
-  background: #fff;
-  font-size: 13pt;
-  -webkit-print-color-adjust: exact;
-  print-color-adjust: exact;
-}
-.etq-large svg { width: 120mm; height: 20mm; }
+/* Ambas as abas do Excel são A4 paisagem com margem 0 — configure "Margens: Nenhuma" e "Escala: 100%" no diálogo */
+@page { size: A4 landscape; margin: 0; }
 @media print {
   aside, header { display: none !important; }
   main { padding: 0 !important; margin: 0 !important; background: #fff !important; }
   .md\\:ml-64, .md\\:ml-16 { margin-left: 0 !important; }
-  .etq-page { break-after: page; }
+  .etq-page {
+    width: 297mm;
+    height: 209mm;
+    box-sizing: border-box;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: ${LABEL_PRINT.smallTopOffsetMm}mm;
+    overflow: hidden;
+    break-after: page;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .etq-page--center { align-items: center; padding-top: 0; }
   .etq-page:last-child { break-after: auto; }
 }
 `;
@@ -103,26 +91,40 @@ function CodePicker({
 }) {
   const [open, setOpen] = useState(false);
   const debounced = useDebounced(code.trim(), 300);
+  const lastMatchedRef = useRef<string>("");
+  const lockedRef = useRef<string>("");
 
-  const { data: options = [] } = useQuery({
+  const { data: options = [], isFetching } = useQuery({
     queryKey: ["catalog-options", debounced],
     queryFn: () => searchCatalog(debounced),
     enabled: debounced.length >= 2,
   });
 
   useEffect(() => {
+    // An explicit click wins: while the text still matches the picked code,
+    // never let a refetch overwrite (or clear) the user's choice.
+    if (lockedRef.current !== "" && debounced === lockedRef.current) return;
+    // While a new search is in flight, options are stale/empty — resolving
+    // now would wipe a just-picked item with null.
+    if (isFetching) return;
     if (debounced.length >= 2) {
       const match = preferBlct(options, debounced);
-      onChange(debounced, match);
+      const matchKey = `${debounced}-${match?.id ?? "none"}`;
+      if (lastMatchedRef.current !== matchKey) {
+        lastMatchedRef.current = matchKey;
+        onChange(debounced, match);
+      }
+    } else {
+      lastMatchedRef.current = "";
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debounced, options.length]);
+  }, [debounced, options, isFetching, onChange]);
 
   return (
     <div className="relative">
       <FormInput
         value={code}
         onChange={(e) => {
+          lockedRef.current = "";
           onChange(e.target.value, null);
           setOpen(true);
         }}
@@ -139,6 +141,8 @@ function CodePicker({
               key={o.id}
               type="button"
               onMouseDown={() => {
+                lastMatchedRef.current = `${o.code}-${o.id}`;
+                lockedRef.current = o.code;
                 onChange(o.code, o);
                 setOpen(false);
               }}
@@ -161,24 +165,13 @@ interface SmallRow {
   item: CatalogOption | null;
 }
 
-function SmallLabel({ code, item }: { code: string; item: CatalogOption | null }) {
-  return (
-    <div className="etq-small">
-      <span className="etq-code">{code || "—"}</span>
-      <span className="etq-name line-clamp-2">{item?.name ?? " "}</span>
-      <span className="etq-unit">{item ? `Und.Med: ${item.unit}` : " "}</span>
-      <Barcode code={code} height={36} />
-    </div>
-  );
-}
-
 function SmallBatchTab() {
   const [rows, setRows] = useState<SmallRow[]>([{ key: 0, code: "", item: null }]);
   const [nextKey, setNextKey] = useState(1);
 
-  function updateRow(key: number, code: string, item: CatalogOption | null): void {
+  const updateRow = useCallback((key: number, code: string, item: CatalogOption | null): void => {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, code, item } : r)));
-  }
+  }, []);
 
   function addRow(): void {
     setRows((prev) => [...prev, { key: nextKey, code: "", item: null }]);
@@ -199,21 +192,12 @@ function SmallBatchTab() {
             {rows.map((row) => (
               <div key={row.key} className="flex items-end gap-2">
                 <div className="flex-1">
-                  <CodePicker
-                    code={row.code}
-                    onChange={(code, item) => updateRow(row.key, code, item)}
-                  />
+                  <CodePicker code={row.code} onChange={(code, item) => updateRow(row.key, code, item)} />
                 </div>
                 {row.item ? (
-                  <Badge variant="success" className="mb-2 shrink-0">
-                    {row.item.plant}
-                  </Badge>
+                  <Badge variant="success" className="mb-2 shrink-0">{row.item.plant}</Badge>
                 ) : (
-                  row.code.trim() !== "" && (
-                    <Badge variant="secondary" className="mb-2 shrink-0">
-                      não encontrado
-                    </Badge>
-                  )
+                  row.code.trim() !== "" && <Badge variant="secondary" className="mb-2 shrink-0">não encontrado</Badge>
                 )}
                 <Button
                   variant="ghost"
@@ -227,45 +211,43 @@ function SmallBatchTab() {
               </div>
             ))}
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={addRow}>
-                Adicionar código
-              </Button>
-              <Button size="sm" disabled={printable.length === 0} onClick={() => window.print()}>
+              <Button variant="outline" size="sm" onClick={addRow}>Adicionar código</Button>
+              <Button size="sm" disabled={printable.length === 0} onClick={() => void printLabels()}>
                 Imprimir ({printable.length} {printable.length === 1 ? "etiqueta" : "etiquetas"})
               </Button>
             </div>
           </CardContent>
         </Card>
 
-        {printable.length > 0 && (
-          <Card className="mb-4">
+        {pages.map((page, i) => (
+          <Card key={i} className="mb-4">
             <CardContent className="pt-4">
               <p className="mb-2 text-sm text-muted-foreground">
-                Pré-visualização em tamanho real — {SMALL_PER_PAGE} por folha A4
+                Pré-visualização em tamanho real — folha {i + 1} de {pages.length} (A4 paisagem, {SMALL_PER_PAGE} por folha)
               </p>
-              <div className="overflow-x-auto">
-                <div className="etq-small-sheet w-fit">
-                  {printable.map((row) => (
-                    <SmallLabel key={row.key} code={row.code} item={row.item} />
-                  ))}
+              <div className="overflow-x-auto bg-muted/20 p-2">
+                <div className="w-fit bg-white p-2">
+                  <SmallSheet labels={page} />
                 </div>
               </div>
             </CardContent>
           </Card>
-        )}
+        ))}
       </div>
 
       <div className="hidden print:block">
         {pages.map((page, i) => (
-          <div key={i} className="etq-page etq-small-sheet">
-            {page.map((row) => (
-              <SmallLabel key={row.key} code={row.code} item={row.item} />
-            ))}
+          <div key={i} className="etq-page">
+            <SmallSheet labels={page} />
           </div>
         ))}
       </div>
     </div>
   );
+}
+
+function parseMeters(raw: string): number {
+  return Number(raw.trim().replace(",", "."));
 }
 
 function LargeLabelTab() {
@@ -274,7 +256,7 @@ function LargeLabelTab() {
   const [pallet, setPallet] = useState(false);
   const [lengths, setLengths] = useState<string[]>([""]);
 
-  const cuts = lengths.map((l) => Number(l)).filter((n) => Number.isFinite(n) && n > 0);
+  const cuts = lengths.map(parseMeters).filter((n) => Number.isFinite(n) && n > 0);
   const total = cuts.reduce((sum, n) => sum + n, 0);
 
   function showResolveHint(): void {
@@ -302,7 +284,7 @@ function LargeLabelTab() {
                   onChange={(e) => setPallet(e.target.checked)}
                   className="h-4 w-4 accent-primary"
                 />
-                <label htmlFor="pallet-toggle" className="text-sm">
+                <label htmlFor="pallet-toggle" className="text-sm font-medium">
                   Palete com vários cabos (lista de cortes)
                 </label>
               </div>
@@ -310,8 +292,7 @@ function LargeLabelTab() {
 
             {item && (
               <div className="rounded-lg bg-muted/50 p-3 text-sm">
-                <span className="font-mono font-semibold text-primary">{item.code}</span> · {item.name} ·{" "}
-                {item.unit} [{item.plant}]
+                <span className="font-mono font-semibold text-primary">{item.code}</span> · {item.name} · {item.unit} [{item.plant}]
               </div>
             )}
 
@@ -322,9 +303,7 @@ function LargeLabelTab() {
                   <div key={i} className="flex items-center gap-2">
                     <FormInput
                       value={len}
-                      onChange={(e) =>
-                        setLengths((prev) => prev.map((v, j) => (j === i ? e.target.value : v)))
-                      }
+                      onChange={(e) => setLengths((prev) => prev.map((v, j) => (j === i ? e.target.value : v)))}
                       label={`Corte ${i + 1}`}
                       type="text"
                       inputMode="decimal"
@@ -345,7 +324,9 @@ function LargeLabelTab() {
                 <Button variant="outline" size="sm" onClick={() => setLengths((prev) => [...prev, ""])}>
                   Adicionar corte
                 </Button>
-                <p className="text-sm text-muted-foreground">Total: {total}M</p>
+                <p className="text-sm text-muted-foreground">
+                  Total: {String(Number(total.toFixed(2))).replace(".", ",")}M
+                </p>
               </div>
             )}
 
@@ -354,39 +335,34 @@ function LargeLabelTab() {
               disabled={code.trim() === ""}
               onClick={() => {
                 showResolveHint();
-                window.print();
+                void printLabels();
               }}
             >
               Imprimir etiqueta grande
             </Button>
           </CardContent>
         </Card>
+
+        {code.trim() !== "" && (
+          <Card className="mb-4">
+            <CardContent className="pt-4">
+              <p className="mb-2 text-sm text-muted-foreground">
+                Pré-visualização em tamanho real — 1 por folha A4 paisagem (escala {Math.round(LABEL_PRINT.largeScale * 100)}%)
+              </p>
+              <div className="overflow-x-auto bg-muted/20 p-2">
+                <div className="w-fit bg-white">
+                  <LargeLabel code={code} item={item} pallet={pallet} cuts={cuts} total={total} />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {code.trim() !== "" && (
         <div className="hidden print:block">
-          <div className="etq-page etq-large">
-            <div>
-              <p>
-                MATERIAL ENEL&nbsp;&nbsp;&nbsp;&nbsp;CÓD:{" "}
-                <span className="font-mono font-bold">{code}</span>
-              </p>
-              <p className="mt-6">DESCRIÇÃO:</p>
-              <p className="mt-1 font-semibold" style={{ fontSize: "16pt" }}>
-                {item?.name ?? " "}
-              </p>
-              <p className="mt-6 text-right">UND.MED: {item?.unit ?? ""}</p>
-              <div className="mt-6 flex justify-center">
-                <Barcode code={code} height={72} />
-              </div>
-            </div>
-            {pallet && cuts.length > 0 && (
-              <p className="mt-8">
-                ESCOLTAS DE: {cuts.join("; ")} <br />
-                <br />
-                TOTAL DE: {total}M
-              </p>
-            )}
+          <div className="etq-page etq-page--center">
+            <LargeLabel code={code} item={item} pallet={pallet} cuts={cuts} total={total} />
           </div>
         </div>
       )}
