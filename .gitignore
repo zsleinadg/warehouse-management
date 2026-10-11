@@ -37,6 +37,9 @@ yarn-error.log*
 # local-only supplier spreadsheet (never commit; see docs/catalog-import.md)
 data/recebimento-blct.xlsx
 
+# local-only label workbook (never commit; labels print from the catalog)
+data/etiqueta-enderecamento.xlsx
+
 # prisma
 /prisma/generated
 
