@@ -45,6 +45,55 @@ function preferBlct(options: CatalogOption[], code: string): CatalogOption | nul
   return exact.find((o) => o.plant === "BLCT") ?? exact[0];
 }
 
+/** Print rules: A4 with fixed millimeter geometry so labels land exactly. */
+const PRINT_CSS = `
+@page { size: A4 portrait; margin: 7mm; }
+.etq-small-sheet { display: grid; grid-template-columns: repeat(4, 1fr); }
+.etq-small {
+  width: 49mm;
+  height: 70.7mm;
+  border: 0.4mm solid #000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2mm;
+  overflow: hidden;
+  gap: 1mm;
+  color: #000;
+  background: #fff;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.etq-small .etq-code { font-family: ui-monospace, monospace; font-size: 11pt; font-weight: 700; }
+.etq-small .etq-name { font-size: 8pt; line-height: 1.2; }
+.etq-small .etq-unit { font-size: 7pt; color: #333; }
+.etq-small svg { width: 44mm; height: 11mm; }
+.etq-large {
+  width: 196mm;
+  min-height: 260mm;
+  border: 1mm solid #000;
+  padding: 8mm;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  color: #000;
+  background: #fff;
+  font-size: 13pt;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.etq-large svg { width: 120mm; height: 20mm; }
+@media print {
+  aside, header { display: none !important; }
+  main { padding: 0 !important; margin: 0 !important; background: #fff !important; }
+  .md\\:ml-64, .md\\:ml-16 { margin-left: 0 !important; }
+  .etq-page { break-after: page; }
+  .etq-page:last-child { break-after: auto; }
+}
+`;
+
 function CodePicker({
   code,
   onChange,
@@ -114,10 +163,10 @@ interface SmallRow {
 
 function SmallLabel({ code, item }: { code: string; item: CatalogOption | null }) {
   return (
-    <div className="flex h-52 flex-col items-center justify-center gap-1 border p-2 text-center">
-      <span className="font-mono text-sm font-bold">{code || "—"}</span>
-      <span className="line-clamp-2 text-xs leading-tight">{item?.name ?? " "}</span>
-      <span className="text-[11px] text-muted-foreground">{item ? `Und.Med: ${item.unit}` : " "}</span>
+    <div className="etq-small">
+      <span className="etq-code">{code || "—"}</span>
+      <span className="etq-name line-clamp-2">{item?.name ?? " "}</span>
+      <span className="etq-unit">{item ? `Und.Med: ${item.unit}` : " "}</span>
       <Barcode code={code} height={36} />
     </div>
   );
@@ -192,12 +241,14 @@ function SmallBatchTab() {
           <Card className="mb-4">
             <CardContent className="pt-4">
               <p className="mb-2 text-sm text-muted-foreground">
-                Pré-visualização — {SMALL_PER_PAGE} por folha A4
+                Pré-visualização em tamanho real — {SMALL_PER_PAGE} por folha A4
               </p>
-              <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                {printable.map((row) => (
-                  <SmallLabel key={row.key} code={row.code} item={row.item} />
-                ))}
+              <div className="overflow-x-auto">
+                <div className="etq-small-sheet w-fit">
+                  {printable.map((row) => (
+                    <SmallLabel key={row.key} code={row.code} item={row.item} />
+                  ))}
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -206,10 +257,7 @@ function SmallBatchTab() {
 
       <div className="hidden print:block">
         {pages.map((page, i) => (
-          <div
-            key={i}
-            className={i + 1 < pages.length ? "grid grid-cols-4 gap-0 print:break-after-page" : "grid grid-cols-4 gap-0"}
-          >
+          <div key={i} className="etq-page etq-small-sheet">
             {page.map((row) => (
               <SmallLabel key={row.key} code={row.code} item={row.item} />
             ))}
@@ -317,21 +365,23 @@ function LargeLabelTab() {
 
       {code.trim() !== "" && (
         <div className="hidden print:block">
-          <div className="flex min-h-[90vh] flex-col justify-between border-2 p-8">
+          <div className="etq-page etq-large">
             <div>
-              <p className="text-lg">
+              <p>
                 MATERIAL ENEL&nbsp;&nbsp;&nbsp;&nbsp;CÓD:{" "}
                 <span className="font-mono font-bold">{code}</span>
               </p>
-              <p className="mt-6 text-lg">DESCRIÇÃO:</p>
-              <p className="mt-1 text-xl font-semibold">{item?.name ?? ""}</p>
-              <p className="mt-6 text-right text-lg">UND.MED: {item?.unit ?? ""}</p>
+              <p className="mt-6">DESCRIÇÃO:</p>
+              <p className="mt-1 font-semibold" style={{ fontSize: "16pt" }}>
+                {item?.name ?? " "}
+              </p>
+              <p className="mt-6 text-right">UND.MED: {item?.unit ?? ""}</p>
               <div className="mt-6 flex justify-center">
                 <Barcode code={code} height={72} />
               </div>
             </div>
             {pallet && cuts.length > 0 && (
-              <p className="mt-8 text-base">
+              <p className="mt-8">
                 ESCOLTAS DE: {cuts.join("; ")} <br />
                 <br />
                 TOTAL DE: {total}M
@@ -349,6 +399,7 @@ export default function EtiquetasPage() {
 
   return (
     <div>
+      <style>{PRINT_CSS}</style>
       <h2 className="mb-3 text-lg font-semibold print:hidden">Etiquetas</h2>
 
       <div className="mb-4 flex gap-2 print:hidden">
