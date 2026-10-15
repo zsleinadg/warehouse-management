@@ -43,6 +43,7 @@ model Location {
   disabled    Boolean      @default(false)
   stocks      Stock[]
   returnItems ReturnItem[]
+  counts      StockCount[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 }
@@ -60,8 +61,30 @@ model Material {
   purchaseInvoiceLines PurchaseInvoiceLine[]
   issueItems           IssueItem[]
   returnItems          ReturnItem[]
+  countItems           StockCountItem[]
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
+}
+
+/**
+ * Supplier catalog (boss's spreadsheet, 16k+ rows). Standalone reference
+ * table, changed only when the source file is re-imported. It is the source
+ * of truth for code/name lookups; warehouse Material/Stock stay independent
+ * and record only what is physically on hand.
+ */
+model CatalogMaterial {
+  id              String   @id @default(uuid())
+  code            String
+  plant           String   @default("")
+  name            String
+  storageLocation String   @default("")
+  unit            String   @default("UN")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([code, plant])
+  @@index([code])
+  @@index([name])
 }
 
 model Stock {
@@ -94,6 +117,8 @@ model Movement {
   issueId     String?
   returnId    String?
   locationId  String?
+  countId     String?
+  count       StockCount?  @relation(fields: [countId], references: [id], onDelete: SetNull)
   createdAt   DateTime     @default(now())
 
   @@index([materialId])
@@ -101,6 +126,43 @@ model Movement {
   @@index([nfNumber])
   @@index([issueId])
   @@index([returnId])
+  @@index([countId])
+}
+
+/**
+ * A cycle-count session over one location. Persists every counted line
+ * (including zero-divergence ones, which leave no movement trace) so past
+ * counts stay browsable; divergent lines also produce ADJUSTMENT movements
+ * linked back via Movement.countId.
+ */
+model StockCount {
+  id         String           @id @default(uuid())
+  number     Int              @unique @default(autoincrement())
+  locationId String
+  location   Location         @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  reason     String
+  userId     String?
+  user       User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  items      StockCountItem[]
+  movements  Movement[]
+  createdAt  DateTime         @default(now())
+
+  @@index([locationId])
+}
+
+model StockCountItem {
+  id              String     @id @default(uuid())
+  countId         String
+  count           StockCount @relation(fields: [countId], references: [id], onDelete: Cascade)
+  materialId      String
+  material        Material   @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  systemQuantity  Int
+  countedQuantity Int
+  difference      Int
+  createdAt       DateTime   @default(now())
+
+  @@unique([countId, materialId])
+  @@index([materialId])
 }
 
 model PurchaseInvoice {
@@ -219,6 +281,7 @@ model User {
   movements Movement[]
   issues    Issue[]
   returns   Return[]
+  counts    StockCount[]
   issueItemAdditions IssueItemAddition[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt

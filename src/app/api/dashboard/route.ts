@@ -30,6 +30,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         nfNumber: true,
         locationId: true,
         issueId: true,
+        countId: true,
         createdAt: true,
         material: { select: { code: true, name: true } },
         user: { select: { name: true } },
@@ -63,16 +64,35 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
   interface ActivityGroup {
     key: string;
-    group: "ISSUE" | "INBOUND" | "SOLO";
+    group: "ISSUE" | "INBOUND" | "COUNT" | "SOLO";
     title: string;
     subtitle: string;
     issueId: string | null;
     nfNumber: string | null;
+    countId: string | null;
     createdAt: string;
     user: { name: string } | null;
     totalQuantity: number;
     items: ActivityItem[];
   }
+  const countById = new Map(
+    (
+      await prisma.stockCount.findMany({
+        where: {
+          id: {
+            in: [
+              ...new Set(
+                recentMovements
+                  .map((m) => m.countId)
+                  .filter((id): id is string => id !== null),
+              ),
+            ],
+          },
+        },
+        select: { id: true, number: true, reason: true },
+      })
+    ).map((c) => [c.id, c]),
+  );
   const groups = new Map<string, ActivityGroup>();
   for (const m of recentMovements) {
     const location = m.locationId ? (locationNameById.get(m.locationId) ?? null) : null;
@@ -96,6 +116,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           subtitle: [issue?.ot, issue?.destination].filter(Boolean).join(" · "),
           issueId: m.issueId,
           nfNumber: null,
+          countId: null,
           createdAt: item.createdAt,
           user: m.user,
           totalQuantity: 0,
@@ -120,6 +141,33 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           subtitle: m.destination ?? "",
           issueId: null,
           nfNumber: m.nfNumber,
+          countId: null,
+          createdAt: item.createdAt,
+          user: m.user,
+          totalQuantity: 0,
+          items: [],
+        };
+        groups.set(key, group);
+      }
+      group.items.push(item);
+      group.totalQuantity += m.quantity;
+      if (item.createdAt > group.createdAt) {
+        group.createdAt = item.createdAt;
+        group.user = m.user ?? group.user;
+      }
+    } else if (m.type === "ADJUSTMENT" && m.countId) {
+      const count = countById.get(m.countId);
+      const key = `count:${m.countId}`;
+      let group = groups.get(key);
+      if (!group) {
+        group = {
+          key,
+          group: "COUNT",
+          title: `Ajuste de contagem #${count?.number ?? "?"}`,
+          subtitle: [location, count?.reason].filter(Boolean).join(" · "),
+          issueId: null,
+          nfNumber: null,
+          countId: m.countId,
           createdAt: item.createdAt,
           user: m.user,
           totalQuantity: 0,
@@ -141,6 +189,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         subtitle: m.destination ?? "",
         issueId: null,
         nfNumber: m.nfNumber,
+        countId: null,
         createdAt: item.createdAt,
         user: m.user,
         totalQuantity: m.quantity,
