@@ -42,11 +42,12 @@ interface DashboardData {
   }[];
   recentActivity: {
     key: string;
-    group: "ISSUE" | "INBOUND" | "SOLO";
+    group: "ISSUE" | "INBOUND" | "COUNT" | "SOLO";
     title: string;
     subtitle: string;
     issueId: string | null;
     nfNumber: string | null;
+    countId: string | null;
     createdAt: string;
     user: { name: string } | null;
     totalQuantity: number;
@@ -204,7 +205,9 @@ export default function DashboardPage() {
                       ? `/saidas?id=${group.issueId}`
                       : group.group === "INBOUND" && group.nfNumber
                         ? `/entradas?nf=${encodeURIComponent(group.nfNumber)}`
-                        : null;
+                        : group.group === "COUNT" && group.countId
+                          ? `/contagem?count=${group.countId}`
+                          : null;
                   const card = (
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 p-3 rounded-lg border border-muted/50 hover:bg-muted/50 transition-colors">
                       <Badge
