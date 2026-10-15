@@ -30,7 +30,7 @@ export const LABEL_PRINT = {
 export const SMALL_PER_PAGE = 16;
 
 const SMALL_COLS = [
-  { a: 25.6640625, b: 4.5546875 },
+  { a: 27.6640625, b: 4.5546875 },
   { a: 25.88671875, b: 4.44140625 },
   { a: 25.88671875, b: 3.77734375 },
   { a: 25.88671875, b: 3.77734375 },
@@ -81,7 +81,8 @@ export function SmallLabel({
       }}
     >
       <div style={cell({ fontSize: "20pt", lineHeight: 1.1 })}>{code}</div>
-      <div style={cell({ fontSize: "8pt", lineHeight: 1.15 })}>
+      
+      <div style={cell({ fontSize: "8pt", lineHeight: 1.15, paddingRight: "10px" })}>
         <span>
           Und.
           <br />
@@ -103,7 +104,10 @@ export function SmallLabel({
       >
         <span>{name}</span>
       </div>
-      <div style={cell({ fontSize: "9pt", whiteSpace: "nowrap" })}>{unit}</div>
+      
+      <div style={cell({ fontSize: "9pt", whiteSpace: "nowrap", paddingRight: "10px" })}>
+        {unit}
+      </div>
 
       <div
         style={{
@@ -220,17 +224,20 @@ export function LargeLabel({
         printColorAdjust: "exact",
       }}
     >
-      {/* Linha 1–6 ------------------------------------------------ */}
+      {/* Linha 1–6 (A1:C6) MATERIAL ENEL */}
       <div
         style={lcell("1 / 4", 1, {
           fontSize: lpt(26),
           lineHeight: 1.15,
           borderLeft: THICK,
           borderTop: THICK,
+          borderBottom: THICK,
         })}
       >
         <span>MATERIAL ENEL</span>
       </div>
+
+      {/* Linha 1–6 (D1:F6) CÓD: */}
       <div
         style={lcell("4 / 7", 1, {
           fontSize: lpt(48),
@@ -238,24 +245,30 @@ export function LargeLabel({
           paddingRight: "2px",
           borderLeft: THICK,
           borderTop: THICK,
+          borderBottom: THICK,
         })}
       >
         CÓD:
       </div>
+
+      {/* Linha 1–6 (G1:L6) Número do Código */}
       <div
         style={lcell("7 / 13", 1, {
           fontSize: lpt(72),
-          borderLeft: THICK,
+          borderLeft: 0,
           borderTop: THICK,
+          borderBottom: THICK,
         })}
       >
         {code}
       </div>
+
+      {/* Linha 1–6 (M1:O6) Logotipo 39 anos B&Q (sem borderLeft para não criar linha antes do logo) */}
       <div
         style={lcell("13 / 16", 1, {
-          borderLeft: THICK,
           borderRight: THICK,
           borderTop: THICK,
+          borderBottom: THICK,
         })}
       >
         <div
@@ -277,28 +290,30 @@ export function LargeLabel({
         </div>
       </div>
 
-      {/* Linha 7–12 ------------------------------------------------ */}
+      {/* Linha 7–12 (A7:L12) DESCRIÇÃO: */}
       <div
         style={lcell("1 / 13", 2, {
           fontSize: lpt(65),
           borderLeft: THICK,
           borderRight: THICK,
-          borderTop: THICK,
+          borderTop: 0,
         })}
       >
         DESCRIÇÃO:
       </div>
+
+      {/* Linha 7–12 (M7:O12) UND.MED */}
       <div
         style={lcell("13 / 16", 2, {
           fontSize: lpt(26),
           borderRight: THICK,
-          borderTop: THICK,
+          borderTop: 0,
         })}
       >
         UND.MED
       </div>
 
-      {/* Linha 13–23 ----------------------------------------------- */}
+      {/* Linha 13–23 (A13:L23) Texto da Descrição */}
       <div
         style={lcell("1 / 13", 3, {
           fontSize: lpt(37),
@@ -307,23 +322,25 @@ export function LargeLabel({
           wordBreak: "break-word",
           borderLeft: THICK,
           borderRight: THICK,
-          borderTop: THICK,
+          borderBottom: 0,
         })}
       >
         <span>{name}</span>
       </div>
+
+      {/* Linha 13–23 (M13:O23) Unidade */}
       <div
         style={lcell("13 / 16", 3, {
           fontSize: lpt(68),
           fontWeight: 400,
           borderRight: THICK,
-          borderTop: THICK,
+          borderBottom: 0,
         })}
       >
         {unit}
       </div>
 
-      {/* Linha 24–38 ----------------------------------------------- */}
+      {/* Linha 24–38 Código de Barras */}
       <div
         style={{
           gridColumn: "1 / 16",
@@ -347,7 +364,7 @@ export function LargeLabel({
         {code.trim() !== "" ? `*${code.trim()}*` : ""}
       </div>
 
-      {/* Linha 39–46 (só em palete) -------------------------------- */}
+      {/* Linha 39–46 (Palete / Cortes) */}
       {showPallet && (
         <div
           style={{
