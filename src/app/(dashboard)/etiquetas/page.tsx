@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiErrorMessage, safeJson } from "@/lib/api-client";
 import { Card, CardContent } from "@/components/ui/card";
@@ -93,12 +93,32 @@ function CodePicker({
   const debounced = useDebounced(code.trim(), 300);
   const lastMatchedRef = useRef<string>("");
   const lockedRef = useRef<string>("");
+  // Stable callback ref: the resolve effect must not re-fire just because
+  // the parent re-rendered (inline onChange identity). Otherwise a click
+  // gets clobbered by a run with the stale partial text.
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  });
 
   const { data: options = [], isFetching } = useQuery({
     queryKey: ["catalog-options", debounced],
     queryFn: () => searchCatalog(debounced),
     enabled: debounced.length >= 2,
   });
+
+  // One row per code: same material exists in several plants, the label
+  // only needs code + name (BLCT preferred silently when names differ).
+  const deduped = useMemo(() => {
+    const seen = new Set<string>();
+    const rows: CatalogOption[] = [];
+    for (const o of options) {
+      if (seen.has(o.code)) continue;
+      seen.add(o.code);
+      rows.push(preferBlct(options, o.code) ?? o);
+    }
+    return rows;
+  }, [options]);
 
   useEffect(() => {
     // An explicit click wins: while the text still matches the picked code,
@@ -112,12 +132,12 @@ function CodePicker({
       const matchKey = `${debounced}-${match?.id ?? "none"}`;
       if (lastMatchedRef.current !== matchKey) {
         lastMatchedRef.current = matchKey;
-        onChange(debounced, match);
+        onChangeRef.current(debounced, match);
       }
     } else {
       lastMatchedRef.current = "";
     }
-  }, [debounced, options, isFetching, onChange]);
+  }, [debounced, options, isFetching]);
 
   return (
     <div className="relative">
@@ -134,23 +154,22 @@ function CodePicker({
         placeholder="Digite o código…"
         autoComplete="off"
       />
-      {open && debounced.length >= 2 && options.length > 0 && (
+      {open && debounced.length >= 2 && deduped.length > 0 && (
         <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border bg-card shadow-lg">
-          {options.map((o) => (
+          {deduped.map((o) => (
             <button
-              key={o.id}
+              key={o.code}
               type="button"
               onMouseDown={() => {
                 lastMatchedRef.current = `${o.code}-${o.id}`;
                 lockedRef.current = o.code;
-                onChange(o.code, o);
+                onChangeRef.current(o.code, o);
                 setOpen(false);
               }}
               className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
             >
               <span className="font-mono font-semibold text-primary">{o.code}</span>{" "}
               <span className="truncate">{o.name}</span>
-              <span className="ml-1 text-xs text-muted-foreground">[{o.plant}]</span>
             </button>
           ))}
         </div>
@@ -194,11 +213,8 @@ function SmallBatchTab() {
                 <div className="flex-1">
                   <CodePicker code={row.code} onChange={(code, item) => updateRow(row.key, code, item)} />
                 </div>
-                {row.item ? (
-                  <Badge variant="success" className="mb-2 shrink-0">{row.item.plant}</Badge>
-                ) : (
-                  row.code.trim() !== "" && <Badge variant="secondary" className="mb-2 shrink-0">não encontrado</Badge>
-                )}
+                {row.item == null &&
+                  row.code.trim() !== "" && <Badge variant="secondary" className="mb-2 shrink-0">não encontrado</Badge>}
                 <Button
                   variant="ghost"
                   size="sm"
@@ -292,7 +308,7 @@ function LargeLabelTab() {
 
             {item && (
               <div className="rounded-lg bg-muted/50 p-3 text-sm">
-                <span className="font-mono font-semibold text-primary">{item.code}</span> · {item.name} · {item.unit} [{item.plant}]
+                <span className="font-mono font-semibold text-primary">{item.code}</span> · {item.name} · {item.unit}
               </div>
             )}
 
