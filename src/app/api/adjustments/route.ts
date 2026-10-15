@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { authorize } from "@/lib/roles";
@@ -19,10 +20,57 @@ function invalid(issues: { field: string; message: string }[], status: number) {
   return NextResponse.json({ errors: issues }, { status });
 }
 
+/** List past count sessions (newest first), paginated. */
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  const auth = await authorize(request, ["ADMIN", "OPERATOR", "VIEWER"]);
+  if ("response" in auth) return auth.response;
+
+  const take = Math.min(
+    Math.max(Number(request.nextUrl.searchParams.get("take") ?? 20), 1),
+    100,
+  );
+  const skip = Math.max(Number(request.nextUrl.searchParams.get("skip") ?? 0), 0);
+
+  const [total, counts] = await Promise.all([
+    prisma.stockCount.count(),
+    prisma.stockCount.findMany({
+      select: {
+        id: true,
+        number: true,
+        reason: true,
+        createdAt: true,
+        location: { select: { id: true, name: true } },
+        user: { select: { name: true } },
+        _count: { select: { items: true } },
+        items: { where: { difference: { not: 0 } }, select: { id: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take,
+      skip,
+    }),
+  ]);
+
+  return NextResponse.json({
+    data: counts.map((count) => ({
+      id: count.id,
+      number: count.number,
+      reason: count.reason,
+      createdAt: count.createdAt.toISOString(),
+      location: count.location,
+      user: count.user,
+      itemCount: count._count.items,
+      divergenceCount: count.items.length,
+    })),
+    meta: { total, take, skip },
+  });
+}
+
 /**
- * Post a cycle count for one location. Every divergence between system and
- * counted quantity becomes an ADJUSTMENT movement (signed: positive for
- * found surplus, negative for shortage) with a mandatory reason.
+ * Post a cycle count for one location. The whole count is saved as a
+ * StockCount (every line, including zero-divergence ones), and every
+ * divergence between system and counted quantity becomes an ADJUSTMENT
+ * movement (signed: positive for found surplus, negative for shortage)
+ * with a mandatory reason, linked back via Movement.countId.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const auth = await authorize(request, ["ADMIN", "OPERATOR"]);
@@ -85,62 +133,86 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   });
   const stockByMaterial = new Map(existingStocks.map((s) => [s.materialId, s]));
 
-  const divergent = [];
+  // Merge repeated lines for the same material (keep the last count).
+  const countedByMaterial = new Map<string, number>();
   for (const item of parsed.data.items) {
-    const systemQuantity = stockByMaterial.get(item.materialId)?.quantity ?? 0;
-    const difference = item.countedQuantity - systemQuantity;
-    if (difference !== 0) {
-      divergent.push({ item, systemQuantity, difference });
-    }
+    countedByMaterial.set(item.materialId, item.countedQuantity);
   }
+  const lines = [...countedByMaterial.entries()].map(([materialId, countedQuantity]) => {
+    const systemQuantity = stockByMaterial.get(materialId)?.quantity ?? 0;
+    return { materialId, systemQuantity, countedQuantity, difference: countedQuantity - systemQuantity };
+  });
+  const divergent = lines.filter((line) => line.difference !== 0);
+
+  // The count id is generated up front so the record, its items and the
+  // adjustment movements all land in a single batched transaction.
+  const countId = randomUUID();
 
   let adjustments: { materialId: string; systemQuantity: number; countedQuantity: number; difference: number; position: number }[] = [];
   if (divergent.length > 0) {
     const basePosition = await prisma.stock.count({ where: { locationId: location.id } });
-    adjustments = divergent.map(({ item, systemQuantity, difference }, i) => ({
-      materialId: item.materialId,
+    adjustments = divergent.map(({ materialId, systemQuantity, countedQuantity, difference }, i) => ({
+      materialId,
       systemQuantity,
-      countedQuantity: item.countedQuantity,
+      countedQuantity,
       difference,
       position: basePosition + i,
     }));
-
-    // One batched transaction instead of N sequential round-trips.
-    await prisma.$transaction(
-      adjustments.flatMap((adj) => {
-        const stock = stockByMaterial.get(adj.materialId);
-        const write = stock
-          ? prisma.stock.update({
-              where: { id: stock.id },
-              data: { quantity: adj.countedQuantity },
-              select: { id: true },
-            })
-          : prisma.stock.create({
-              data: {
-                materialId: adj.materialId,
-                locationId: location.id,
-                quantity: adj.countedQuantity,
-                position: adj.position,
-              },
-              select: { id: true },
-            });
-        const movement = prisma.movement.create({
-          data: {
-            type: "ADJUSTMENT",
-            quantity: adj.difference,
-            materialId: adj.materialId,
-            userId: auth.user.userId,
-            destination: location.name,
-            reason: parsed.data.reason,
-            locationId: location.id,
-          },
-          select: { id: true },
-        });
-        return [write, movement];
-      }),
-      { maxWait: 15000, timeout: 60000 },
-    );
   }
+
+  // One batched transaction instead of N sequential round-trips.
+  const [count] = await prisma.$transaction([
+    prisma.stockCount.create({
+      data: {
+        id: countId,
+        locationId: location.id,
+        reason: parsed.data.reason,
+        userId: auth.user.userId,
+      },
+      select: { id: true, number: true },
+    }),
+    prisma.stockCountItem.createMany({
+      data: lines.map((line) => ({
+        countId,
+        materialId: line.materialId,
+        systemQuantity: line.systemQuantity,
+        countedQuantity: line.countedQuantity,
+        difference: line.difference,
+      })),
+    }),
+    ...adjustments.flatMap((adj) => {
+      const stock = stockByMaterial.get(adj.materialId);
+      const write = stock
+        ? prisma.stock.update({
+            where: { id: stock.id },
+            data: { quantity: adj.countedQuantity },
+            select: { id: true },
+          })
+        : prisma.stock.create({
+            data: {
+              materialId: adj.materialId,
+              locationId: location.id,
+              quantity: adj.countedQuantity,
+              position: adj.position,
+            },
+            select: { id: true },
+          });
+      const movement = prisma.movement.create({
+        data: {
+          type: "ADJUSTMENT",
+          quantity: adj.difference,
+          materialId: adj.materialId,
+          userId: auth.user.userId,
+          destination: location.name,
+          reason: parsed.data.reason,
+          locationId: location.id,
+          countId,
+        },
+        select: { id: true },
+      });
+      return [write, movement];
+    }),
+  ], { maxWait: 15000, timeout: 60000 });
 
   const result = adjustments.map(({ materialId, systemQuantity, countedQuantity, difference }) => ({
     materialId,
@@ -150,7 +222,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }));
 
   return NextResponse.json(
-    { data: { locationId: location.id, locationName: location.name, adjustments: result } },
+    {
+      data: {
+        countId: count.id,
+        countNumber: count.number,
+        locationId: location.id,
+        locationName: location.name,
+        adjustments: result,
+      },
+    },
     { status: 201 },
   );
 }
