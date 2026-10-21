@@ -263,20 +263,14 @@ function SaidasContent() {
     onError: (err: Error) => toast.error(err.message),
   });
 
-  const materialOptions: FormSelectOption[] = catalog.map((m) => ({
-    value: m.id,
-    label: `${m.code} — ${m.name} (${m.unit})`,
-  }));
-
   const locationOptions: FormSelectOption[] = buildLocationOptions(locations);
 
   const lineFields = [
     {
       key: "materialId" as const,
-      type: "select" as const,
+      type: "material-picker" as const,
       label: "Material",
-      placeholder: "Selecione...",
-      options: materialOptions,
+      placeholder: "Digite para buscar material…",
       required: true,
     },
     {
