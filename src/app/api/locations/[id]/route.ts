@@ -5,8 +5,8 @@ import { authorize } from "@/lib/roles";
 import { isValidNewParent, subtreeStockCount } from "@/lib/locations";
 
 const updateSchema = z.object({
-  name: z.string().trim().min(1, "Name is required").max(120).optional(),
-  parentId: z.string().uuid("Invalid parent ID").optional(),
+  name: z.string().trim().min(1, "Name is required").max(120).optional().nullable(),
+  parentId: z.string().uuid("Invalid parent ID").optional().nullable(),
   position: z.coerce.number().int().min(0).optional(),
   disabled: z.coerce.boolean().optional(),
 });
@@ -90,11 +90,17 @@ export async function PATCH(
     });
   }
 
+  // Handle explicit null for parentId (remove parent) vs undefined (keep existing)
+  let parentId = existing.parentId;
+  if (parsed.data.parentId !== undefined) {
+    parentId = parsed.data.parentId; // can be null or a UUID string
+  }
+
   const updated = await prisma.location.update({
     where: { id },
     data: {
       name: parsed.data.name ?? existing.name,
-      parentId: parsed.data.parentId ?? existing.parentId,
+      parentId,
       position,
       disabled: parsed.data.disabled ?? existing.disabled,
     },
