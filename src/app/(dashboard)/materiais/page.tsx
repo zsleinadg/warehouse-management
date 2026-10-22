@@ -392,10 +392,13 @@ export default function MateriaisPage() {
                 <input
                   type="text"
                   value={catalogSearch}
-                  onChange={(e) => setCatalogSearch(e.target.value)}
+                  onChange={(e) => setCatalogSearch((e.target as HTMLInputElement).value)}
                   placeholder="Buscar por código, nome... (mín. 2 caracteres)"
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-sm"
-                  onKeyDown={(e) => e.key === "Enter" && e.target.value.length >= 2 && searchCatalog(e.target.value)}
+                  onKeyDown={(e) => {
+                    const input = e.target as HTMLInputElement;
+                    if (e.key === "Enter" && input.value.length >= 2) searchCatalog(input.value);
+                  }}
                 />
               </div>
               <p className="mt-1 text-xs text-gray-500">Digite 2+ caracteres para buscar. Resultados limitados a 50.</p>
