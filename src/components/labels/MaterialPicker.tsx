@@ -69,6 +69,7 @@ export function MaterialPicker({
   useEffect(() => {
     if (value) {
       const match = allMaterials.find((m) => m.id === value);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local state with prop changes
       setSelectedItem(match ?? null);
       // Show "CÓDIGO — NOME" in input when selected
       if (match) setSearchText(`${match.code} — ${match.name}`);

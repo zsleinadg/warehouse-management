@@ -9,19 +9,32 @@ import { Button } from "@/components/ui/button";
 import { FormInput, FormSelect, type FormSelectOption } from "@/components/ui/forms";
 import { toast } from "sonner";
 
-async function fetchTree(): Promise<any[]> {
+interface LocationNode {
+  id: string;
+  name: string;
+  children: LocationNode[];
+}
+
+interface CatalogOption {
+  id: string;
+  code: string;
+  name: string;
+  plant: string;
+}
+
+async function fetchTree(): Promise<LocationNode[]> {
   const response = await fetch("/api/locations/tree");
   if (!response.ok) throw new Error("Failed to load locations");
   const body = await safeJson(response);
-  return (body as { data?: any[] })?.data ?? [];
+  return (body as { data?: LocationNode[] })?.data ?? [];
 }
 
-async function searchCatalog(q: string): Promise<any[]> {
+async function searchCatalog(q: string): Promise<CatalogOption[]> {
   const params = new URLSearchParams({ q, take: "8" });
   const response = await fetch(`/api/catalog?${params.toString()}`);
   if (!response.ok) throw new Error("Failed to search catalog");
   const body = await safeJson(response);
-  return (body as { data?: any[] })?.data ?? [];
+  return (body as { data?: CatalogOption[] })?.data ?? [];
 }
 
 function useDebounced(value: string, delayMs: number): string {
@@ -33,7 +46,7 @@ function useDebounced(value: string, delayMs: number): string {
   return debounced;
 }
 
-function flatten(nodes: any[], prefix: string[] = []): { id: string; path: string }[] {
+function flatten(nodes: LocationNode[], prefix: string[] = []): { id: string; path: string }[] {
   const out: { id: string; path: string }[] = [];
   for (const node of nodes) {
     const path = [...prefix, node.name];
@@ -43,7 +56,7 @@ function flatten(nodes: any[], prefix: string[] = []): { id: string; path: strin
   return out;
 }
 
-function preferBlct(options: any[], code: string) {
+function preferBlct(options: CatalogOption[], code: string) {
   const exact = options.filter((o) => o.code === code);
   if (exact.length === 0) return null;
   return exact.find((o) => o.plant === "BLCT") ?? exact[0];
@@ -187,7 +200,7 @@ export function NewCountTab({ onCountCreated }: { onCountCreated: () => void }) 
 
     setIsSubmitting(true);
     try {
-      const body: any = { reason };
+      const body: Record<string, unknown> = { reason };
       if (mode === "location") {
         body.locationId = locationId;
       } else {
