@@ -278,6 +278,7 @@ export function LargeLabel({
             top: `${16 * PX * K}mm`,
             width: `${216 * PX * K}mm`,
             height: `${82.4 * PX * K}mm`,
+            zIndex: 0,
           }}
         >
           <Image

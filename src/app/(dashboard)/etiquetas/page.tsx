@@ -16,6 +16,7 @@ import {
   SmallSheet,
   type LabelItem,
 } from "@/components/excel-labels";
+import { WordLabelsTab } from "@/components/labels/WordLabelsTab";
 
 interface CatalogOption extends LabelItem {
   id: string;
@@ -79,6 +80,10 @@ const PRINT_CSS = `
   }
   .etq-page--center { align-items: center; padding-top: 0; }
   .etq-page:last-child { break-after: auto; }
+  
+  /* Ensure logo stays behind grid content in print */
+  .etq-page [style*="zIndex"] { z-index: 0 !important; }
+  .etq-page [style*="gridTemplateColumns"] > div { position: relative; z-index: 1; }
 }
 `;
 
@@ -266,17 +271,36 @@ function parseMeters(raw: string): number {
   return Number(raw.trim().replace(",", "."));
 }
 
-function LargeLabelTab() {
-  const [code, setCode] = useState("");
-  const [item, setItem] = useState<CatalogOption | null>(null);
-  const [pallet, setPallet] = useState(false);
-  const [lengths, setLengths] = useState<string[]>([""]);
+interface LargeItemRow {
+  key: number;
+  code: string;
+  item: CatalogOption | null;
+  pallet: boolean;
+  lengths: string[];
+}
 
-  const cuts = lengths.map(parseMeters).filter((n) => Number.isFinite(n) && n > 0);
-  const total = cuts.reduce((sum, n) => sum + n, 0);
+function LargeLabelTab() {
+  const [items, setItems] = useState<LargeItemRow[]>([{ key: 0, code: "", item: null, pallet: false, lengths: [""] }]);
+  const [nextKey, setNextKey] = useState(1);
+
+  const addRow = useCallback(() => {
+    setItems((prev) => [...prev, { key: nextKey, code: "", item: null, pallet: false, lengths: [""] }]);
+    setNextKey((k) => k + 1);
+  }, [nextKey]);
+
+  const removeRow = useCallback((key: number) => {
+    setItems((prev) => prev.filter((r) => r.key !== key));
+  }, []);
+
+  const updateRow = useCallback((key: number, patch: Partial<LargeItemRow>) => {
+    setItems((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  }, []);
+
+  const printableItems = items.filter((r) => r.code.trim() !== "");
 
   function showResolveHint(): void {
-    if (code.trim() !== "" && !item) toast.error("Código não encontrado no catálogo");
+    const unresolved = printableItems.filter((r) => r.item === null);
+    if (unresolved.length > 0) toast.error(`${unresolved.length} código(s) não encontrado(s) no catálogo`);
   }
 
   return (
@@ -284,110 +308,141 @@ function LargeLabelTab() {
       <div className="print:hidden">
         <Card className="mb-4">
           <CardContent className="space-y-4 pt-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <CodePicker
-                code={code}
-                onChange={(c, found) => {
-                  setCode(c);
-                  setItem(found);
-                }}
-              />
-              <div className="flex items-end gap-2 pb-1">
-                <input
-                  id="pallet-toggle"
-                  type="checkbox"
-                  checked={pallet}
-                  onChange={(e) => setPallet(e.target.checked)}
-                  className="h-4 w-4 accent-primary"
-                />
-                <label htmlFor="pallet-toggle" className="text-sm font-medium">
-                  Palete com vários cabos (lista de cortes)
-                </label>
-              </div>
-            </div>
-
-            {item && (
-              <div className="rounded-lg bg-muted/50 p-3 text-sm">
-                <span className="font-mono font-semibold text-primary">{item.code}</span> · {item.name} · {item.unit}
-              </div>
-            )}
-
-            {pallet && (
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Comprimentos (m)</p>
-                {lengths.map((len, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <FormInput
-                      value={len}
-                      onChange={(e) => setLengths((prev) => prev.map((v, j) => (j === i ? e.target.value : v)))}
-                      label={`Corte ${i + 1}`}
-                      type="text"
-                      inputMode="decimal"
-                      autoComplete="off"
-                      placeholder="0"
+            {items.map((row) => (
+              <div key={row.key} className="space-y-3 p-3 border rounded-lg bg-muted/30">
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <CodePicker
+                      code={row.code}
+                      onChange={(c, found) => updateRow(row.key, { code: c, item: found })}
                     />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="mt-5 shrink-0 text-destructive hover:text-destructive"
-                      onClick={() => setLengths((prev) => prev.filter((_, j) => j !== i))}
-                      disabled={lengths.length === 1}
-                    >
-                      Remover
-                    </Button>
                   </div>
-                ))}
-                <Button variant="outline" size="sm" onClick={() => setLengths((prev) => [...prev, ""])}>
-                  Adicionar corte
-                </Button>
-                <p className="text-sm text-muted-foreground">
-                  Total: {String(Number(total.toFixed(2))).replace(".", ",")}M
-                </p>
-              </div>
-            )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mb-1 shrink-0 text-destructive hover:text-destructive"
+                    onClick={() => removeRow(row.key)}
+                    disabled={items.length === 1}
+                  >
+                    Remover
+                  </Button>
+                </div>
 
-            <Button
-              size="sm"
-              disabled={code.trim() === ""}
-              onClick={() => {
-                showResolveHint();
-                void printLabels();
-              }}
-            >
-              Imprimir etiqueta grande
-            </Button>
+                {row.item && (
+                  <div className="rounded-lg bg-muted/50 p-3 text-sm">
+                    <span className="font-mono font-semibold text-primary">{row.item.code}</span> · {row.item.name} · {row.item.unit}
+                  </div>
+                )}
+
+                <div className="flex items-end gap-2 pb-1">
+                  <input
+                    id={`pallet-toggle-${row.key}`}
+                    type="checkbox"
+                    checked={row.pallet}
+                    onChange={(e) => updateRow(row.key, { pallet: e.target.checked })}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  <label htmlFor={`pallet-toggle-${row.key}`} className="text-sm font-medium">
+                    Palete com vários cabos (lista de cortes)
+                  </label>
+                </div>
+
+                {row.pallet && (
+                  <div className="space-y-2 pl-6">
+                    <p className="text-sm font-medium">Comprimentos (m)</p>
+                    {row.lengths.map((len, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <FormInput
+                          value={len}
+                          onChange={(e) => updateRow(row.key, { lengths: row.lengths.map((v, j) => (j === i ? e.target.value : v)) })}
+                          label={`Corte ${i + 1}`}
+                          type="text"
+                          inputMode="decimal"
+                          autoComplete="off"
+                          placeholder="0"
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="mt-5 shrink-0 text-destructive hover:text-destructive"
+                          onClick={() => updateRow(row.key, { lengths: row.lengths.filter((_, j) => j !== i) })}
+                          disabled={row.lengths.length === 1}
+                        >
+                          Remover
+                        </Button>
+                      </div>
+                    ))}
+                    <Button variant="outline" size="sm" onClick={() => updateRow(row.key, { lengths: [...row.lengths, ""] })}>
+                      Adicionar corte
+                    </Button>
+                    <p className="text-sm text-muted-foreground">
+                      Total: {String(Number(row.lengths.map(parseMeters).filter((n) => Number.isFinite(n) && n > 0).reduce((sum, n) => sum + n, 0).toFixed(2))).replace(".", ",")}M
+                    </p>
+                  </div>
+                )}
+              </div>
+            ))}
+
+            <div className="flex gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={addRow}>
+                Adicionar etiqueta
+              </Button>
+              <Button
+                size="sm"
+                disabled={printableItems.length === 0}
+                onClick={() => {
+                  showResolveHint();
+                  void printLabels();
+                }}
+              >
+                Imprimir ({printableItems.length} {printableItems.length === 1 ? "etiqueta" : "etiquetas"})
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
-        {code.trim() !== "" && (
-          <Card className="mb-4">
-            <CardContent className="pt-4">
-              <p className="mb-2 text-sm text-muted-foreground">
-                Pré-visualização em tamanho real — 1 por folha A4 paisagem (escala {Math.round(LABEL_PRINT.largeScale * 100)}%)
-              </p>
-              <div className="overflow-x-auto bg-muted/20 p-2">
-                <div className="w-fit bg-white">
-                  <LargeLabel code={code} item={item} pallet={pallet} cuts={cuts} total={total} />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        {printableItems.length > 0 && (
+          <div className="space-y-4">
+            {printableItems.map((row, idx) => {
+              const cuts = row.lengths.map(parseMeters).filter((n) => Number.isFinite(n) && n > 0);
+              const total = cuts.reduce((sum, n) => sum + n, 0);
+              return (
+                <Card key={row.key} className="mb-4">
+                  <CardContent className="pt-4">
+                    <p className="mb-2 text-sm text-muted-foreground">
+                      Pré-visualização — Item {idx + 1} de {printableItems.length} (A4 paisagem, escala {Math.round(LABEL_PRINT.largeScale * 100)}%)
+                    </p>
+                    <div className="overflow-x-auto bg-muted/20 p-2">
+                      <div className="w-fit bg-white">
+                        <LargeLabel code={row.code} item={row.item} pallet={row.pallet} cuts={cuts} total={total} />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
         )}
+
       </div>
 
-      {code.trim() !== "" && (
-        <div className="hidden print:block">
-          <div className="etq-page etq-page--center">
-            <LargeLabel code={code} item={item} pallet={pallet} cuts={cuts} total={total} />
-          </div>
-        </div>
-      )}
+      <div className="hidden print:block">
+        {printableItems.map((row) => {
+          const cuts = row.lengths.map(parseMeters).filter((n) => Number.isFinite(n) && n > 0);
+          const total = cuts.reduce((sum, n) => sum + n, 0);
+          return (
+            <div key={row.key} className="etq-page etq-page--center">
+              <LargeLabel code={row.code} item={row.item} pallet={row.pallet} cuts={cuts} total={total} />
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
 export default function EtiquetasPage() {
-  const [tab, setTab] = useState<"pequena" | "grande">("pequena");
+  const [tab, setTab] = useState<"pequena" | "grande" | "word">("pequena");
 
   return (
     <div>
@@ -401,9 +456,12 @@ export default function EtiquetasPage() {
         <Button variant={tab === "grande" ? "default" : "outline"} size="sm" onClick={() => setTab("grande")}>
           Etiqueta grande
         </Button>
+        <Button variant={tab === "word" ? "default" : "outline"} size="sm" onClick={() => setTab("word")}>
+          Do Word
+        </Button>
       </div>
 
-      {tab === "pequena" ? <SmallBatchTab /> : <LargeLabelTab />}
+      {tab === "pequena" ? <SmallBatchTab /> : tab === "grande" ? <LargeLabelTab /> : <WordLabelsTab />}
     </div>
   );
 }
