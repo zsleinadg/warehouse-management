@@ -129,7 +129,7 @@ export function CountTab({ onCountSaved }: CountTabProps) {
             </div>
           ) : counts.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              Nenhuma contagem pendente. Crie uma nova na aba "Nova Contagem".
+              Nenhuma contagem pendente. Crie uma nova na aba &ldquo;Nova Contagem&rdquo;.
             </p>
           ) : (
             <div className="space-y-2">

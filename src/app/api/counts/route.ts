@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
   const take = parseInt(searchParams.get("take") || "20", 10);
   const skip = (page - 1) * take;
 
-  const where: any = {};
+  const where: Record<string, unknown> = {};
   if (status) where.status = status;
   if (userId) where.userId = userId;
 
