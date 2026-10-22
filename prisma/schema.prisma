@@ -32,6 +32,13 @@ enum IssueKind {
   EMERGENCIAL
 }
 
+enum StockCountStatus {
+  PENDING
+  COUNTED
+  APPLIED
+  CANCELLED
+}
+
 model Location {
   id        String     @id @default(uuid())
   name      String
@@ -138,28 +145,36 @@ model Movement {
 model StockCount {
   id         String           @id @default(uuid())
   number     Int              @unique @default(autoincrement())
-  locationId String
-  location   Location         @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  locationId String?
+  location   Location?        @relation(fields: [locationId], references: [id], onDelete: SetNull)
   reason     String
   userId     String?
   user       User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  status     StockCountStatus @default(PENDING)
+  appliedAt  DateTime?
+  appliedBy  String?
+  appliedByUser User?         @relation("CountAppliedBy", fields: [appliedBy], references: [id], onDelete: SetNull)
+  cancelledAt DateTime?
+  cancelledBy String?
+  cancelledByUser User?       @relation("CountCancelledBy", fields: [cancelledBy], references: [id], onDelete: SetNull)
   items      StockCountItem[]
   movements  Movement[]
   createdAt  DateTime         @default(now())
 
   @@index([locationId])
+  @@index([status])
 }
 
 model StockCountItem {
-  id              String     @id @default(uuid())
+  id              String   @id @default(uuid())
   countId         String
   count           StockCount @relation(fields: [countId], references: [id], onDelete: Cascade)
   materialId      String
   material        Material   @relation(fields: [materialId], references: [id], onDelete: Restrict)
   systemQuantity  Int
-  countedQuantity Int
-  difference      Int
-  createdAt       DateTime   @default(now())
+  countedQuantity Int?
+  difference      Int?
+  createdAt       DateTime @default(now())
 
   @@unique([countId, materialId])
   @@index([materialId])
@@ -282,6 +297,8 @@ model User {
   issues    Issue[]
   returns   Return[]
   counts    StockCount[]
+  appliedCounts    StockCount[] @relation("CountAppliedBy")
+  cancelledCounts  StockCount[] @relation("CountCancelledBy")
   issueItemAdditions IssueItemAddition[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt

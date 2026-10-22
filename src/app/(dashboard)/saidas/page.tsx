@@ -228,20 +228,41 @@ function SaidasContent() {
       });
       if (!response.ok) throw new Error(apiErrorMessage(await safeJson(response), `${action} failed`));
     },
-    onSuccess: (_, variables) => {
+    onSuccess: async (_, variables) => {
       setShowCancelForm(false);
       setCancelReason("");
       setShowRevertForm(false);
       setRevertReason("");
       setRevertLocationId("");
       invalidate();
-      toast.success(
+      const successMsg =
         variables.action === "close"
           ? "Requisição atendida"
           : variables.action === "cancel"
             ? "Requisição cancelada"
-            : "Requisição cancelada com estorno ao estoque",
-      );
+            : "Requisição cancelada com estorno ao estoque";
+      toast.success(successMsg);
+
+      // Sincronizar com Google Sheets ao ATENDER (close)
+      if (variables.action === "close") {
+        try {
+          const syncResp = await fetch("/api/sync-sheets", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ issueId: variables.id }),
+          });
+          const syncResult = await syncResp.json();
+          if (!syncResp.ok) {
+            console.error("Falha ao sincronizar com Google Sheets:", syncResult);
+            toast.warning("Atendida, mas falha ao sincronizar planilha");
+          } else {
+            console.log("✅ Sincronizado com Google Sheets:", syncResult);
+          }
+        } catch (err) {
+          console.error("Erro ao chamar /api/sync-sheets:", err);
+          toast.warning("Atendida, mas erro ao sincronizar planilha");
+        }
+      }
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -263,20 +284,14 @@ function SaidasContent() {
     onError: (err: Error) => toast.error(err.message),
   });
 
-  const materialOptions: FormSelectOption[] = catalog.map((m) => ({
-    value: m.id,
-    label: `${m.code} — ${m.name} (${m.unit})`,
-  }));
-
   const locationOptions: FormSelectOption[] = buildLocationOptions(locations);
 
   const lineFields = [
     {
       key: "materialId" as const,
-      type: "select" as const,
+      type: "material-picker" as const,
       label: "Material",
-      placeholder: "Selecione...",
-      options: materialOptions,
+      placeholder: "Digite para buscar material…",
       required: true,
     },
     {

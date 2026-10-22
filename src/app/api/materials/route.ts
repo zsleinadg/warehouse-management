@@ -20,18 +20,49 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const auth = await authorize(request, ["ADMIN", "OPERATOR", "VIEWER"]);
   if ("response" in auth) return auth.response;
 
-  const materials = await prisma.material.findMany({
-    orderBy: { code: "asc" },
-    select: {
-      id: true,
-      code: true,
-      name: true,
-      unit: true,
-      minStock: true,
-      costCents: true,
-      disabled: true,
-    },
-  });
+  const { searchParams } = new URL(request.url);
+  const q = searchParams.get("q")?.trim() ?? "";
+
+  let materials;
+  if (q) {
+    materials = await prisma.material.findMany({
+      where: {
+        AND: [
+          { disabled: false },
+          {
+            OR: [
+              { code: { contains: q, mode: "insensitive" } },
+              { name: { contains: q, mode: "insensitive" } },
+            ],
+          },
+        ],
+      },
+      orderBy: { code: "asc" },
+      take: 20,
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        unit: true,
+        minStock: true,
+        costCents: true,
+        disabled: true,
+      },
+    });
+  } else {
+    materials = await prisma.material.findMany({
+      orderBy: { code: "asc" },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        unit: true,
+        minStock: true,
+        costCents: true,
+        disabled: true,
+      },
+    });
+  }
 
   return NextResponse.json({ data: materials });
 }

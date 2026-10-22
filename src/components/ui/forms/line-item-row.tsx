@@ -7,6 +7,7 @@ import { Trash2 } from "lucide-react";
 import { FormSelect, FormSelectOption } from "./form-select";
 import { FormInput } from "./form-input";
 import { FormMoneyInput } from "./form-money-input";
+import { MaterialPicker } from "@/components/labels/MaterialPicker";
 
 export interface LineItemRowProps<T extends Record<string, unknown>> {
   item: T;
@@ -20,7 +21,7 @@ export interface LineItemRowProps<T extends Record<string, unknown>> {
 
 export interface LineItemFieldConfig<T> {
   key: keyof T;
-  type: "select" | "input" | "number" | "money";
+  type: "select" | "input" | "number" | "money" | "material-picker";
   label: string;
   placeholder?: string;
   options?: FormSelectOption[];
@@ -62,6 +63,13 @@ export function LineItemRow<T extends Record<string, unknown>>({
               onValueChange={(value) => onUpdate(index, { [field.key]: value } as Partial<T>)}
               required={field.required}
               allowClear={true}
+            />
+          ) : field.type === "material-picker" ? (
+            <MaterialPicker
+              value={(item[field.key] as string) || ""}
+              onChange={(materialId) => onUpdate(index, { [field.key]: materialId } as Partial<T>)}
+              disabled={false}
+              placeholder={field.placeholder}
             />
           ) : field.type === "number" ? (
             <FormInput
