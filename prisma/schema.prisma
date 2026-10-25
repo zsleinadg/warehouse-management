@@ -249,6 +249,7 @@ model IssueItemAddition {
   issueItemId String
   issueItem   IssueItem @relation(fields: [issueItemId], references: [id], onDelete: Cascade)
   quantity    Int
+  nfNumber    String?   @default("")
   userId      String?
   user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
   createdAt   DateTime  @default(now())

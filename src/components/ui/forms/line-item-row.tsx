@@ -30,6 +30,14 @@ export interface LineItemFieldConfig<T> {
   min?: number;
   max?: number;
   step?: number;
+  autoFill?: Partial<Record<keyof T, string>>;
+}
+
+interface MaterialOption {
+  id: string;
+  code: string;
+  name: string;
+  unit: string;
 }
 
 function sanitizeInteger(raw: string): number {
@@ -67,7 +75,18 @@ export function LineItemRow<T extends Record<string, unknown>>({
           ) : field.type === "material-picker" ? (
             <MaterialPicker
               value={(item[field.key] as string) || ""}
-              onChange={(materialId) => onUpdate(index, { [field.key]: materialId } as Partial<T>)}
+              onChange={(materialId, selectedItem) => {
+                const updates: Partial<T> = { [field.key]: materialId } as Partial<T>;
+                if (selectedItem && field.autoFill) {
+                  for (const [targetKey, sourceKey] of Object.entries(field.autoFill)) {
+                    const sourceValue = selectedItem[sourceKey as keyof MaterialOption];
+                    if (sourceValue !== undefined) {
+                      updates[targetKey as keyof T] = sourceValue as T[keyof T];
+                    }
+                  }
+                }
+                onUpdate(index, updates);
+              }}
               disabled={false}
               placeholder={field.placeholder}
             />

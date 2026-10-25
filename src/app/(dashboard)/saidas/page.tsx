@@ -86,7 +86,7 @@ async function fetchLocations(): Promise<LocationOption[]> {
   return ((body as { data?: LocationOption[] })?.data ?? []).filter((l: LocationOption) => !l.disabled);
 }
 
-const EMPTY_LINE = { materialId: "", quantity: 1 };
+const EMPTY_LINE = { materialId: "", quantity: 1, unit: "" };
 
 const STATUS_LABEL: Record<string, string> = {
   DRAFT: "Rascunho",
@@ -135,7 +135,7 @@ function SaidasContent() {
   const [revertReason, setRevertReason] = useState("");
   const [revertLocationId, setRevertLocationId] = useState("");
   // Acréscimo em rascunho
-  const [extraItems, setExtraItems] = useState([{ ...EMPTY_LINE }]);
+  const [extraItems, setExtraItems] = useState<{ materialId: string; quantity: number; unit: string }[]>([{ ...EMPTY_LINE }]);
 
   const { data: issues = [] } = useQuery({
     queryKey: ["issues", statusFilter, kindFilter],
@@ -301,6 +301,32 @@ function SaidasContent() {
       placeholder: "1",
       min: 1,
       required: true,
+    },
+  ];
+
+  const extraLineFields = [
+    {
+      key: "materialId" as const,
+      type: "material-picker" as const,
+      label: "Material",
+      placeholder: "Digite para buscar material…",
+      required: true,
+      autoFill: { unit: "unit" },
+    },
+    {
+      key: "quantity" as const,
+      type: "number" as const,
+      label: "Qtd",
+      placeholder: "1",
+      min: 1,
+      required: true,
+    },
+    {
+      key: "unit" as const,
+      type: "input" as const,
+      label: "Un",
+      placeholder: "—",
+      required: false,
     },
   ];
 
@@ -526,6 +552,7 @@ function SaidasContent() {
                       <thead>
                         <tr className="border-b border-muted/50 bg-muted/50">
                           <th className="text-left p-3 font-medium">Material</th>
+                          <th className="text-left p-3 font-medium">Un</th>
                           <th className="text-left p-3 font-medium">Pedido</th>
                           <th className="text-left p-3 font-medium">Atendido</th>
                         </tr>
@@ -556,6 +583,7 @@ function SaidasContent() {
                                 </span>
                               )}
                             </td>
+                            <td className="p-3 whitespace-nowrap text-muted-foreground">{item.material.unit}</td>
                             <td className="p-3 whitespace-nowrap">×{item.quantity}</td>
                             <td className="p-3 whitespace-nowrap">
                               ×{item.fulfilledQuantity}
@@ -583,7 +611,7 @@ function SaidasContent() {
                     <LineItemArray
                       items={extraItems}
                       onItemsChange={setExtraItems}
-                      fields={lineFields}
+                      fields={extraLineFields}
                       emptyItem={EMPTY_LINE}
                       addButtonLabel="+ Adicionar linha"
                       canRemove={true}
