@@ -1,0 +1,1 @@
+ALTER TABLE "IssueItemAddition" ADD COLUMN "nfNumber" TEXT DEFAULT '';
