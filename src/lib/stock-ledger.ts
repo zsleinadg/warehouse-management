@@ -16,6 +16,13 @@ export interface LedgerMovement {
   locationId?: string | null;
 }
 
+/** Converte Decimal do Prisma para number puro (safe para quantidade de estoque). */
+function toNumber(val: unknown): number {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === "number") return val;
+  return Number(val);
+}
+
 /** Append one row to the immutable movement ledger. */
 export async function recordMovement(tx: LedgerTx, movement: LedgerMovement) {
   return tx.movement.create({
@@ -32,6 +39,29 @@ export async function recordMovement(tx: LedgerTx, movement: LedgerMovement) {
       locationId: movement.locationId ?? undefined,
     },
     select: { id: true },
+  });
+}
+
+/** Batch create multiple movements in a single query. */
+export async function recordMovements(
+  tx: LedgerTx,
+  movements: LedgerMovement[],
+): Promise<{ count: number }> {
+  if (movements.length === 0) return { count: 0 };
+  return tx.movement.createMany({
+    data: movements.map((m) => ({
+      type: m.type,
+      quantity: m.quantity,
+      materialId: m.materialId,
+      userId: m.userId ?? null,
+      destination: m.destination ?? null,
+      nfNumber: m.nfNumber ?? null,
+      reason: m.reason ?? null,
+      issueId: m.issueId ?? null,
+      returnId: m.returnId ?? null,
+      locationId: m.locationId ?? null,
+    })),
+    skipDuplicates: false,
   });
 }
 
@@ -73,6 +103,7 @@ export class InsufficientBalanceError extends Error {
 /**
  * Remove quantity consuming placements in position order (FIFO by layout).
  * Throws InsufficientBalanceError carrying the available balance.
+ * Batched updates for performance.
  */
 export async function removeStock(
   tx: LedgerTx,
@@ -83,24 +114,30 @@ export async function removeStock(
     select: { id: true, locationId: true, quantity: true },
     orderBy: [{ locationId: "asc" }, { position: "asc" }],
   });
-  const available = placements.reduce((sum, p) => sum + p.quantity, 0);
+  const available = placements.reduce((sum, p) => sum + toNumber(p.quantity), 0);
   if (available < args.quantity) {
     throw new InsufficientBalanceError(args.materialId, available);
   }
 
   const allocations: Allocation[] = [];
   let remaining = args.quantity;
+  const updates: Prisma.PrismaPromise<{ id: string }>[] = [];
   for (const placement of placements) {
     if (remaining <= 0) break;
-    const taken = Math.min(placement.quantity, remaining);
-    await tx.stock.update({
-      where: { id: placement.id },
-      data: { quantity: { decrement: taken } },
-      select: { id: true },
-    });
+    const placementQty = toNumber(placement.quantity);
+    const taken = Math.min(placementQty, remaining);
+    updates.push(
+      tx.stock.update({
+        where: { id: placement.id },
+        data: { quantity: { decrement: taken } },
+        select: { id: true },
+      }),
+    );
     allocations.push({ stockId: placement.id, locationId: placement.locationId, taken });
     remaining -= taken;
   }
+  // Execute all updates in parallel
+  await Promise.all(updates);
   return allocations;
 }
 
@@ -110,7 +147,7 @@ export async function totalOnHand(tx: LedgerTx, materialId: string): Promise<num
     where: { materialId },
     _sum: { quantity: true },
   });
-  return result._sum.quantity ?? 0;
+  return toNumber(result._sum.quantity);
 }
 
 export interface OriginAllocation {
@@ -137,8 +174,8 @@ export async function getIssueOrigins(
     if (!m.locationId) continue;
     const list = byMaterial.get(m.materialId) ?? [];
     const slot = list.find((s) => s.locationId === m.locationId);
-    if (slot) slot.taken += m.quantity;
-    else list.push({ locationId: m.locationId, taken: m.quantity });
+    if (slot) slot.taken += toNumber(m.quantity);
+    else list.push({ locationId: m.locationId, taken: toNumber(m.quantity) });
     byMaterial.set(m.materialId, list);
   }
   // Fallback for pre-tracking issues: top-balance location per material.
@@ -154,7 +191,7 @@ export async function getIssueOrigins(
       orderBy: { quantity: "desc" },
       select: { locationId: true, quantity: true },
     });
-    if (top) byMaterial.set(materialId, [{ locationId: top.locationId, taken: top.quantity }]);
+    if (top) byMaterial.set(materialId, [{ locationId: top.locationId, taken: toNumber(top.quantity) }]);
   }
   return byMaterial;
 }

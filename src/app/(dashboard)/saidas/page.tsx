@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCanEdit } from "@/hooks/use-me";
@@ -14,6 +14,19 @@ import { Button } from "@/components/ui/button";
 import { FormInput, FormSelect, FormActions, LineItemArray, type FormSelectOption } from "@/components/ui/forms";
 import { toast } from "sonner";
 import { FileText, X } from "lucide-react";
+
+// Extended form item type with unit and allowDecimals for decimal input support
+interface SaidaFormItem extends Record<string, unknown> {
+  materialId: string;
+  quantity: number;
+  unit?: string;
+  allowDecimals?: boolean;
+}
+
+// Extended form data type for the saida form
+interface SaidaFormData extends Omit<IssueFormData, "items"> {
+  items: SaidaFormItem[];
+}
 
 interface CatalogMaterial {
   id: string;
@@ -31,6 +44,7 @@ interface LocationOption {
 }
 
 interface IssueItem {
+  id: string;
   quantity: number;
   fulfilledQuantity: number;
   isExtra: boolean;
@@ -86,7 +100,7 @@ async function fetchLocations(): Promise<LocationOption[]> {
   return ((body as { data?: LocationOption[] })?.data ?? []).filter((l: LocationOption) => !l.disabled);
 }
 
-const EMPTY_LINE = { materialId: "", quantity: 1, unit: "" };
+const EMPTY_LINE = { materialId: "", quantity: 1, unit: "", allowDecimals: false, nfNumber: "" };
 
 const STATUS_LABEL: Record<string, string> = {
   DRAFT: "Rascunho",
@@ -115,9 +129,14 @@ export default function SaidasPage() {
 function SaidasContent() {
   const queryClient = useQueryClient();
   const canEdit = useCanEdit();
+  const [mounted, setMounted] = useState(false);
   const [statusFilter, setStatusFilter] = useState("");
   const [kindFilter, setKindFilter] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Deep-link do dashboard (?id=): seleciona a OT ao chegar.
   const searchId = useSearchParams().get("id");
@@ -135,7 +154,9 @@ function SaidasContent() {
   const [revertReason, setRevertReason] = useState("");
   const [revertLocationId, setRevertLocationId] = useState("");
   // Acréscimo em rascunho
-  const [extraItems, setExtraItems] = useState<{ materialId: string; quantity: number; unit: string }[]>([{ ...EMPTY_LINE }]);
+  const [extraItems, setExtraItems] = useState<SaidaFormItem[]>([{ ...EMPTY_LINE }]);
+  // Quantidades atendidas definidas pelo usuário (por itemId)
+  const [fulfilledQuantities, setFulfilledQuantities] = useState<Record<string, number>>({});
 
   const { data: issues = [] } = useQuery({
     queryKey: ["issues", statusFilter, kindFilter],
@@ -159,7 +180,7 @@ function SaidasContent() {
     retry: 1,
   });
 
-  const form = useZodForm<IssueFormData>(issueSchema, {
+  const form = useZodForm<SaidaFormData>(issueSchema, {
     defaultValues: {
       ot: "",
       kind: "OBRA",
@@ -182,7 +203,7 @@ function SaidasContent() {
   }
 
   const createMutation = useMutation({
-    mutationFn: async (data: IssueFormData) => {
+    mutationFn: async (data: SaidaFormData) => {
       const response = await fetch("/api/issues", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -215,16 +236,18 @@ function SaidasContent() {
       id,
       reason,
       returnsTo,
+      fulfilledQuantities,
     }: {
       action: "close" | "cancel" | "cancel-closed";
       id: string;
       reason?: string;
       returnsTo?: { materialId: string; locationId: string }[];
+      fulfilledQuantities?: { itemId: string; quantity: number }[];
     }) => {
       const response = await fetch(`/api/issues/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, reason, returnsTo }),
+        body: JSON.stringify({ action, reason, returnsTo, fulfilledQuantities }),
       });
       if (!response.ok) throw new Error(apiErrorMessage(await safeJson(response), `${action} failed`));
     },
@@ -293,6 +316,7 @@ function SaidasContent() {
       label: "Material",
       placeholder: "Digite para buscar material…",
       required: true,
+      autoFill: { unit: "unit", allowDecimals: "unit" },
     },
     {
       key: "quantity" as const,
@@ -311,7 +335,7 @@ function SaidasContent() {
       label: "Material",
       placeholder: "Digite para buscar material…",
       required: true,
-      autoFill: { unit: "unit" },
+      autoFill: { allowDecimals: "unit" },
     },
     {
       key: "quantity" as const,
@@ -322,10 +346,10 @@ function SaidasContent() {
       required: true,
     },
     {
-      key: "unit" as const,
+      key: "nfNumber" as const,
       type: "input" as const,
-      label: "Un",
-      placeholder: "—",
+      label: "NF do acréscimo (opcional)",
+      placeholder: "Ex.: 12345",
       required: false,
     },
   ];
@@ -371,7 +395,7 @@ function SaidasContent() {
     <div>
       <h2 className="mb-3 text-lg font-semibold">Saídas</h2>
 
-      {canEdit && (
+      {mounted && canEdit && (
         <Card className="mb-4">
           <CardHeader>
             <CardTitle>Nova Requisição</CardTitle>
@@ -484,6 +508,7 @@ function SaidasContent() {
                 setSelectedId(issue.id);
                 setShowCancelForm(false);
                 setShowRevertForm(false);
+                setFulfilledQuantities({});
               }}
             >
               <FileText className="h-4 w-4 shrink-0" />
@@ -561,6 +586,10 @@ function SaidasContent() {
                         {detail.items.map((item, i) => {
                           const addedTotal = item.additions.reduce((sum, a) => sum + a.quantity, 0);
                           const baseQuantity = Math.max(item.quantity - addedTotal, 0);
+                          const isDraft = detail.status === "DRAFT";
+                          const defaultFulfilled = item.quantity; // Pré-preenchido com o total do pedido
+                          const currentFulfilled = fulfilledQuantities[item.id] ?? defaultFulfilled;
+                          const maxAllowed = item.quantity;
                           return (
                           <tr key={i} className="border-b border-muted/50 hover:bg-muted/50">
                             <td className="p-3">
@@ -586,11 +615,30 @@ function SaidasContent() {
                             <td className="p-3 whitespace-nowrap text-muted-foreground">{item.material.unit}</td>
                             <td className="p-3 whitespace-nowrap">×{item.quantity}</td>
                             <td className="p-3 whitespace-nowrap">
-                              ×{item.fulfilledQuantity}
-                              {detail.status === "CLOSED" && item.fulfilledQuantity < item.quantity && (
-                                <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-900 dark:text-amber-200">
-                                  parcial
-                                </span>
+                              {isDraft ? (
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={maxAllowed}
+                                  step={item.material.unit === "UN" ? 1 : 0.01}
+                                  value={currentFulfilled}
+                                  onChange={(e) => {
+                                    const val = e.target.value === "" ? 0 : Math.min(Math.max(Number(e.target.value.replace(",", ".")), 0), maxAllowed);
+                                    setFulfilledQuantities((prev) => ({ ...prev, [item.id]: val }));
+                                  }}
+                                  className="w-20 text-center border rounded px-1.5 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                                  aria-label={`Quantidade atendida para ${item.material.name}`}
+                                  lang="en"
+                                />
+                              ) : (
+                                <>
+                                  ×{item.fulfilledQuantity}
+                                  {detail.status === "CLOSED" && item.fulfilledQuantity < item.quantity && (
+                                    <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                                      parcial
+                                    </span>
+                                  )}
+                                </>
                               )}
                             </td>
                           </tr>
@@ -602,7 +650,7 @@ function SaidasContent() {
                 </CardContent>
               </Card>
 
-              {canEdit && detail.status === "DRAFT" && (
+              {mounted && canEdit && detail.status === "DRAFT" && (
                 <Card className="mt-3">
                   <CardHeader>
                     <CardTitle className="text-sm">Acréscimo (antes da entrega)</CardTitle>
@@ -626,10 +674,17 @@ function SaidasContent() {
                 </Card>
               )}
 
-              {canEdit && detail.status === "DRAFT" && (
+              {mounted && canEdit && detail.status === "DRAFT" && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button
-                    onClick={() => selectedId && actionMutation.mutate({ action: "close", id: selectedId })}
+                    onClick={() => {
+                      if (!selectedId) return;
+                      const fulfilledQuantitiesArray = Object.entries(fulfilledQuantities).map(([itemId, quantity]) => ({
+                        itemId,
+                        quantity,
+                      }));
+                      actionMutation.mutate({ action: "close", id: selectedId, fulfilledQuantities: fulfilledQuantitiesArray });
+                    }}
                     className="gap-2"
                     disabled={actionMutation.isPending}
                   >
@@ -669,7 +724,7 @@ function SaidasContent() {
                 </div>
               )}
 
-              {canEdit && detail.status === "CLOSED" && (
+              {mounted && canEdit && detail.status === "CLOSED" && (
                 <div className="mt-3">
                   {!showRevertForm ? (
                     <Button
