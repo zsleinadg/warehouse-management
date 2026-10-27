@@ -5,7 +5,7 @@ import { authorize } from "@/lib/roles";
 
 const itemSchema = z.object({
   materialId: z.uuid("Invalid material"),
-  quantity: z.coerce.number().int().min(1, "Quantity must be at least 1"),
+  quantity: z.coerce.number().positive("Quantity must be at least 1"),
   nfNumber: z.string().trim().optional(),
 });
 

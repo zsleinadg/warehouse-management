@@ -118,7 +118,7 @@ export function LineItemRow<T extends Record<string, unknown>>({
               onBlur={(e) => {
                 // Sanitize to number on blur
                 const raw = e.target.value;
-                const sanitized = field.allowDecimals
+                const sanitized = (item as Record<string, unknown>).allowDecimals
                   ? (() => {
                       const cleaned = raw.replace(/[^0-9.]/g, "");
                       const parts = cleaned.split(".");

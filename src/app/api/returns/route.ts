@@ -5,9 +5,15 @@ import { authorize } from "@/lib/roles";
 import { addStock, getIssueOrigins, recordMovement } from "@/lib/stock-ledger";
 import { assertPlaceable } from "@/lib/locations";
 
+function toNum(val: unknown): number {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === "number") return val;
+  return Number(val);
+}
+
 const itemSchema = z.object({
   materialId: z.uuid("Invalid material"),
-  quantity: z.coerce.number().int().min(1, "Quantity must be at least 1"),
+  quantity: z.coerce.number().positive("Quantity must be at least 1"),
 });
 
 const createSchema = z.object({
@@ -98,7 +104,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const alreadyReturned = new Map<string, number>();
   for (const ret of issue.returns) {
     for (const item of ret.items) {
-      alreadyReturned.set(item.materialId, (alreadyReturned.get(item.materialId) ?? 0) + item.quantity);
+      alreadyReturned.set(item.materialId, (alreadyReturned.get(item.materialId) ?? 0) + toNum(item.quantity));
     }
   }
 
@@ -132,7 +138,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   for (const [materialId, quantity] of merged) {
     const material = materialById.get(materialId);
     const returnable =
-      (fulfilledByMaterial.get(materialId) ?? 0) - (alreadyReturned.get(materialId) ?? 0);
+      toNum(fulfilledByMaterial.get(materialId)) - toNum(alreadyReturned.get(materialId));
     if (quantity > returnable) {
       return invalid(
         [

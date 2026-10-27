@@ -75,7 +75,7 @@ export async function PATCH(
           where: { countId_materialId: { countId: id, materialId: item.materialId } },
           data: {
             countedQuantity: item.countedQuantity,
-            difference: item.countedQuantity - systemQuantity,
+            difference: Number(item.countedQuantity) - Number(systemQuantity),
           },
         });
       })

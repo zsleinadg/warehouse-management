@@ -78,7 +78,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const onHand = new Map(
     holdings.map((material) => [
       material.code,
-      material.stocks.reduce((sum, stock) => sum + stock.quantity, 0),
+      material.stocks.reduce((sum, stock) => sum + Number(stock.quantity), 0),
     ]),
   );
 

@@ -5,10 +5,16 @@ import { authorize } from "@/lib/roles";
 import { addStock, movingAverageCents, recordMovement, totalOnHand } from "@/lib/stock-ledger";
 import { assertPlaceable } from "@/lib/locations";
 
+function toNum(val: unknown): number {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === "number") return val;
+  return Number(val);
+}
+
 const lineSchema = z.object({
   materialId: z.uuid("Invalid material"),
   locationId: z.uuid("Invalid location"),
-  quantity: z.coerce.number().int().min(1, "Quantity must be at least 1"),
+  quantity: z.coerce.number().positive("Quantity must be at least 1"),
   unitCostCents: z.coerce.number().int().min(0, "Unit cost cannot be negative"),
 });
 
@@ -49,9 +55,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       issuedAt: invoice.issuedAt,
       createdAt: invoice.createdAt,
       linesCount: invoice.lines.length,
-      totalQuantity: invoice.lines.reduce((sum, line) => sum + line.quantity, 0),
+      totalQuantity: invoice.lines.reduce((sum, line) => sum + toNum(line.quantity), 0),
       totalCostCents: invoice.lines.reduce(
-        (sum, line) => sum + line.quantity * line.unitCostCents,
+        (sum, line) => sum + toNum(line.quantity) * line.unitCostCents,
         0,
       ),
     })),

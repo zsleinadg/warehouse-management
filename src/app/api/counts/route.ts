@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
       });
       itemsToCount = stocks.map((s) => ({
         materialId: s.materialId,
-        systemQuantity: s.quantity,
+        systemQuantity: Number(s.quantity),
       }));
     } else if (materialIds && materialIds.length > 0) {
       // Get system quantity for each material across all locations
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
         });
         itemsToCount.push({
           materialId,
-          systemQuantity: totalQty._sum.quantity ?? 0,
+          systemQuantity: Number(totalQty._sum.quantity ?? 0),
         });
       }
     }

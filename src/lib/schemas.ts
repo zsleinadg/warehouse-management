@@ -1,12 +1,9 @@
 import { z } from "zod";
 
-const decimalPattern = /^\d+(\.\d+)?$/;
-
-// String that accepts only digits and optional dot-decimal (no comma)
-const numberWithDot = z.string().regex(decimalPattern, "Use apenas números e ponto (ex: 0.320)");
-
-// Transform to number if provided
-const number = numberWithDot.transform((val) => (val ? parseFloat(val) : 0));
+// Accepts both string and number inputs: the form's onBlur already converts
+// the quantity to a number (parseFloat/parseInt), so the schema must not
+// require a string, otherwise submission validation fails.
+const number = z.coerce.number().nonnegative();
 
 export const materialSchema = z.object({
   code: z.string().min(1, "Código é obrigatório"),
