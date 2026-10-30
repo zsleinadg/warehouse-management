@@ -158,6 +158,10 @@ function SaidasContent() {
   const [extraItems, setExtraItems] = useState<SaidaFormItem[]>([{ ...EMPTY_LINE }]);
   // Quantidades atendidas definidas pelo usuário (por itemId)
   const [fulfilledQuantities, setFulfilledQuantities] = useState<Record<string, number>>({});
+  // Raw text being typed per item (allows intermediate states like "1.")
+  const [rawInputValues, setRawInputValues] = useState<Record<string, string>>({});
+  // Which item is currently being edited (to show raw input vs formatted)
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
 
   const { data: issues = [] } = useQuery({
     queryKey: ["issues", statusFilter, kindFilter],
@@ -618,18 +622,81 @@ function SaidasContent() {
                             <td className="p-3 whitespace-nowrap">
                               {isDraft ? (
                                 <input
-                                  type="number"
+                                  type="text"
+                                  inputMode="decimal"
                                   min={0}
                                   max={maxAllowed}
                                   step={item.material.unit === "UN" ? 1 : 0.01}
-                                  value={currentFulfilled}
+                                  value={
+                                    editingItemId === item.id
+                                      ? rawInputValues[item.id] ?? ""
+                                      : currentFulfilled.toLocaleString("pt-BR", {
+                                          minimumFractionDigits: 0,
+                                          maximumFractionDigits: 2,
+                                        })
+                                  }
+                                  onFocus={() => setEditingItemId(item.id)}
+                                  onBlur={(e) => {
+                                    setEditingItemId(null);
+                                    const raw = rawInputValues[item.id] ?? "";
+                                    if (raw.trim() !== "") {
+                                      const normalized = raw.replace(",", ".");
+                                      const parsed = Number(normalized);
+                                      if (!isNaN(parsed)) {
+                                        const rounded =
+                                          item.material.unit === "UN"
+                                            ? Math.round(parsed)
+                                            : parsed;
+                                        const clamped = Math.min(
+                                          Math.max(rounded, 0),
+                                          maxAllowed
+                                        );
+                                        setFulfilledQuantities((prev) => ({
+                                          ...prev,
+                                          [item.id]: clamped,
+                                        }));
+                                        setRawInputValues((prev) => ({
+                                          ...prev,
+                                          [item.id]: clamped.toLocaleString("pt-BR", {
+                                            minimumFractionDigits: 0,
+                                            maximumFractionDigits: 2,
+                                          }),
+                                        }));
+                                      }
+                                    }
+                                  }}
                                   onChange={(e) => {
-                                    const val = e.target.value === "" ? 0 : Math.min(Math.max(Number(e.target.value.replace(",", ".")), 0), maxAllowed);
-                                    setFulfilledQuantities((prev) => ({ ...prev, [item.id]: val }));
+                                    const val = e.target.value;
+                                    setRawInputValues((prev) => ({
+                                      ...prev,
+                                      [item.id]: val,
+                                    }));
+                                    // Only commit to number state when it's a complete valid number
+                                    // (not a trailing dot/comma like "1.")
+                                    const normalized = val.replace(",", ".");
+                                    if (
+                                      normalized.trim() !== "" &&
+                                      normalized !== "." &&
+                                      !normalized.endsWith(".") &&
+                                      !isNaN(Number(normalized))
+                                    ) {
+                                      const parsed = Number(normalized);
+                                      const rounded =
+                                        item.material.unit === "UN"
+                                          ? Math.round(parsed)
+                                          : parsed;
+                                      const clamped = Math.min(
+                                        Math.max(rounded, 0),
+                                        maxAllowed
+                                      );
+                                      setFulfilledQuantities((prev) => ({
+                                        ...prev,
+                                        [item.id]: clamped,
+                                      }));
+                                    }
                                   }}
                                   className="w-20 text-center border rounded px-1.5 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                                   aria-label={`Quantidade atendida para ${item.material.name}`}
-                                  lang="en"
                                 />
                               ) : (
                                 <>
@@ -680,10 +747,34 @@ function SaidasContent() {
                   <Button
                     onClick={() => {
                       if (!selectedId) return;
-                      const fulfilledQuantitiesArray = Object.entries(fulfilledQuantities).map(([itemId, quantity]) => ({
-                        itemId,
-                        quantity,
-                      }));
+                      // Sync any pending raw input before closing
+                      Object.entries(rawInputValues).forEach(([itemId, raw]) => {
+                        if (raw.trim() !== "") {
+                          const normalized = raw.replace(",", ".");
+                          const parsed = Number(normalized);
+                          if (!isNaN(parsed)) {
+                            const item = detail.items.find((i) => i.id === itemId);
+                            const maxAllowed = item?.quantity ?? 0;
+                            const rounded =
+                              item?.material.unit === "UN"
+                                ? Math.round(parsed)
+                                : parsed;
+                            const clamped = Math.min(Math.max(rounded, 0), maxAllowed);
+                            setFulfilledQuantities((prev) => ({
+                              ...prev,
+                              [itemId]: clamped,
+                            }));
+                          }
+                        }
+                      });
+                      setEditingItemId(null);
+                      const validItemIds = new Set(detail.items.map((i) => i.id));
+                      const fulfilledQuantitiesArray = Object.entries(fulfilledQuantities)
+                        .filter(([itemId]) => validItemIds.has(itemId))
+                        .map(([itemId, quantity]) => ({
+                          itemId,
+                          quantity,
+                        }));
                       actionMutation.mutate({ action: "close", id: selectedId, fulfilledQuantities: fulfilledQuantitiesArray });
                     }}
                     className="gap-2"

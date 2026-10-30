@@ -287,14 +287,13 @@ export async function PATCH(
 
   // Validate user-provided quantities if any
   if (userFulfilledQuantities.length > 0) {
-    const itemIds = issue.items.map((i) => i.id);
-    for (const fq of userFulfilledQuantities) {
-      if (!itemIds.includes(fq.itemId)) {
-        return invalid(
-          [{ field: "fulfilledQuantities", message: `Item ${fq.itemId} not found in this issue` }],
-          404,
-        );
-      }
+    const itemIds = new Set(issue.items.map((i) => i.id));
+    // Skip unknown item IDs (stale frontend state) instead of erroring
+    const validQuantities = userFulfilledQuantities.filter((fq) =>
+      itemIds.has(fq.itemId),
+    );
+
+    for (const fq of validQuantities) {
       const item = issue.items.find((i) => i.id === fq.itemId)!;
       const maxAllowed = toNum(item.quantity);
       if (fq.quantity > maxAllowed) {
@@ -303,6 +302,14 @@ export async function PATCH(
           400,
         );
       }
+    }
+
+    // Rebuild map with only valid quantities
+    const cleanedMap = new Map(validQuantities.map((f) => [f.itemId, f.quantity]));
+    // Replace the original map entries
+    userFulfilledMap.clear();
+    for (const [k, v] of cleanedMap) {
+      userFulfilledMap.set(k, v);
     }
   }
 
@@ -325,7 +332,33 @@ export async function PATCH(
     }),
   );
 
-  if (balances.every(({ available }) => available <= 0)) {
+  // Total quantity to fulfill in this action and total already fulfilled
+  const totalNeeded = balances.reduce((sum, { needed }) => sum + needed, 0);
+  const totalAlreadyFulfilled = issue.items.reduce(
+    (sum, item) => sum + toNum(item.fulfilledQuantity),
+    0,
+  );
+
+  // Block closing when nothing is being fulfilled now and nothing was fulfilled before
+  if (totalNeeded === 0 && totalAlreadyFulfilled === 0) {
+    return NextResponse.json(
+      {
+        errors: [
+          {
+            field: "items",
+            message: "Informe pelo menos uma quantidade a ser atendida",
+          },
+        ],
+      },
+      { status: 400 },
+    );
+  }
+
+  // Only check stock balance when there are items to fulfill
+  if (
+    balances.length > 0 &&
+    balances.every(({ available }) => available <= 0)
+  ) {
     return NextResponse.json(
       {
         errors: [{ field: "items", message: "No balance available for any pending item" }],
