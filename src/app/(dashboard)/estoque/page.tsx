@@ -21,13 +21,6 @@ async function fetchTree(): Promise<TreeNode[]> {
   return (body as { data?: TreeNode[] })?.data ?? [];
 }
 
-async function fetchLocations() {
-  const response = await fetch("/api/locations");
-  if (!response.ok) return [];
-  const body = await safeJson(response);
-  return (body as { data?: Array<{ id: string; name: string }> })?.data ?? [];
-}
-
 interface SummaryStats {
   totalLocations: number;
   totalItems: number;
@@ -46,10 +39,6 @@ export default function EstoquePage() {
   const { data: tree = [], isLoading } = useQuery({
     queryKey: ["tree"],
     queryFn: fetchTree,
-  });
-  const { data: locations = [] } = useQuery({
-    queryKey: ["locations"],
-    queryFn: fetchLocations,
   });
   const canEdit = useCanEdit();
 
@@ -95,39 +84,6 @@ export default function EstoquePage() {
     onError: (err: Error) => toast.error(err.message),
   });
 
-  // Mover material existente de um local para outro
-  const moveToLocationMutation = useMutation({
-    mutationFn: async ({
-      stockId,
-      locationId,
-    }: {
-      stockId: string;
-      locationId: string;
-    }) => {
-      const response = await fetch(`/api/stocks/${stockId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ locationId }),
-      });
-      if (!response.ok) {
-        const body = await safeJson(response).catch(() => null);
-        throw new Error(apiErrorMessage(body, "Falha ao mover material"));
-      }
-      return response.json();
-    },
-    onSuccess: () => {
-      setMoveCode("");
-      setMoveTargetId(null);
-      setMoveLoading(false);
-      invalidate();
-      toast.success("Material movido para outro local");
-    },
-    onError: (err: Error) => {
-      setMoveLoading(false);
-      toast.error(err.message);
-    },
-  });
-
   const removeMutation = useMutation({
     mutationFn: async (stockId: string) => {
       const response = await fetch(`/api/stocks/${stockId}`, { method: "DELETE" });
@@ -139,6 +95,158 @@ export default function EstoquePage() {
     },
     onError: (err: Error) => toast.error(err.message),
   });
+
+  // Vincular/mover material existente para o local selecionado
+  const [linkCode, setLinkCode] = useState("");
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [linkFoundMaterial, setLinkFoundMaterial] = useState<{
+    id: string;
+    code: string;
+    name: string;
+    unit: string;
+    currentLocation: string;
+    currentLocationId: string;
+    stockId: string;
+    quantity: number;
+  } | null>(null);
+
+  // Busca o material na árvore de dados já carregada para obter o stockId
+  function findMaterialInTree(code: string): {
+    id: string;
+    code: string;
+    name: string;
+    unit: string;
+    currentLocation: string;
+    currentLocationId: string;
+    stockId: string;
+    quantity: number;
+  } | null {
+    for (const node of tree) {
+      const stock = node.stocks.find((s) => s.material.code.toUpperCase() === code.toUpperCase());
+      if (stock) {
+        return {
+          id: stock.material.id,
+          code: stock.material.code,
+          name: stock.material.name,
+          unit: stock.material.unit,
+          currentLocation: node.name,
+          currentLocationId: node.id,
+          stockId: stock.id,
+          quantity: Number(stock.quantity),
+        };
+      }
+      type ReturnValue = {
+        id: string;
+        code: string;
+        name: string;
+        unit: string;
+        currentLocation: string;
+        currentLocationId: string;
+        stockId: string;
+        quantity: number;
+      };
+
+      // Busca recursiva em filhos
+      function searchChildren(nodes: TreeNode[]): ReturnValue | null {
+        for (const n of nodes) {
+          const s = n.stocks.find((st) => st.material.code.toUpperCase() === code.toUpperCase());
+          if (s) {
+            return {
+              id: s.material.id,
+              code: s.material.code,
+              name: s.material.name,
+              unit: s.material.unit,
+              currentLocation: n.name,
+              currentLocationId: n.id,
+              stockId: s.id,
+              quantity: Number(s.quantity),
+            };
+          }
+          if (n.children.length > 0) {
+            const found = searchChildren(n.children);
+            if (found) return found;
+          }
+        }
+        return null;
+      }
+      const found = searchChildren(node.children);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  async function resolveMaterialByCode(code: string) {
+    // Primeiro tenta encontrar na árvore já carregada (tem stockId)
+    const found = findMaterialInTree(code.trim());
+    if (found) return found;
+
+    // Fallback: busca na API de materiais para confirmar existência
+    const response = await fetch(`/api/materials?q=${encodeURIComponent(code.trim())}&take=5`);
+    if (!response.ok) return null;
+    const body = await safeJson(response);
+    const data = (body as { data?: Array<{ id: string; code: string; name: string; unit: string; disabled: boolean }> })?.data ?? [];
+    const exact = data.find((m) => m.code.toUpperCase() === code.trim().toUpperCase() && !m.disabled);
+    if (exact) {
+      return {
+        id: exact.id,
+        code: exact.code,
+        name: exact.name,
+        unit: exact.unit,
+        currentLocation: "não encontrado em estoque",
+        currentLocationId: "",
+        stockId: "",
+        quantity: 0,
+      };
+    }
+    return null;
+  }
+
+  function handleLinkMaterial(): void {
+    if (!selectedId) {
+      toast.error("Selecione um local na árvore antes de vincular.");
+      return;
+    }
+    if (!linkFoundMaterial) {
+      toast.error("Material não encontrado. Digite o código e pressione Enter.");
+      return;
+    }
+
+    // Se já está neste local, não precisa mover
+    if (linkFoundMaterial.currentLocationId === selectedId) {
+      setLinkCode("");
+      setLinkLoading(false);
+      setLinkFoundMaterial(null);
+      toast.info("Este material já está neste local.");
+      return;
+    }
+
+    setLinkLoading(true);
+
+    // Mover o stock para o local selecionado via PATCH
+    fetch(`/api/stocks/${linkFoundMaterial.stockId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ locationId: selectedId }),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const body = await safeJson(res).catch(() => null);
+          throw new Error(apiErrorMessage(body, "Falha ao mover material"));
+        }
+        return res.json();
+      })
+      .then(() => {
+        setLinkCode("");
+        setLinkLoading(false);
+        setLinkFoundMaterial(null);
+        invalidate();
+        toast.success("Material movido para o local selecionado");
+      })
+      .catch((err) => {
+        setLinkLoading(false);
+        toast.error(err.message);
+      });
+  }
 
   function toggle(id: string): void {
     setExpanded((prev) => {
@@ -152,6 +260,8 @@ export default function EstoquePage() {
   function select(id: string): void {
     setSelectedId(id);
     setHighlightCode(null);
+    setLinkFoundMaterial(null);
+    setLinkCode("");
   }
 
   function jump(locationId: string, code: string): void {
@@ -164,77 +274,8 @@ export default function EstoquePage() {
   const selected = selectedId ? findNode(tree, selectedId) : null;
   const breadcrumb = selectedId ? (findNamePath(tree, selectedId) ?? []) : [];
 
-  // Stocks of the selected location (for quick stats in header)
   const selectedStocks = selected?.stocks ?? [];
   const selectedTotalQty = selectedStocks.reduce((sum, s) => sum + Number(s.quantity), 0);
-
-  // Mover material rápido: digitar código e escolher local destino
-  const [moveCode, setMoveCode] = useState("");
-  const [moveTargetId, setMoveTargetId] = useState<string | null>(null);
-  const [moveLoading, setMoveLoading] = useState(false);
-  const [moveFoundMaterial, setMoveFoundMaterial] = useState<{
-    id: string;
-    code: string;
-    name: string;
-    currentLocation: string;
-  } | null>(null);
-
-  async function resolveMaterialByCode(code: string) {
-    const response = await fetch(`/api/search?q=${encodeURIComponent(code.trim())}`);
-    if (!response.ok) return null;
-    const body = await safeJson(response);
-    const results = (body as { data?: Array<any> })?.data ?? [];
-    // Procurar um resultado que tenha locations (está em estoque)
-    const stockResult = results.find((r: any) => r.locations && r.locations.length > 0);
-    if (!stockResult) return null;
-    // Pegar a primeira localização onde está
-    const loc = stockResult.locations[0];
-    return {
-      id: stockResult.id,
-      code: stockResult.code,
-      name: stockResult.name,
-      currentLocation: loc.path.join(" → "),
-    };
-  }
-
-  function handleMoveMaterial(): void {
-    if (!moveTargetId) {
-      toast.error("Selecione o local de destino.");
-      return;
-    }
-    if (!moveFoundMaterial) {
-      toast.error("Material não encontrado ou não está em estoque.");
-      return;
-    }
-    // Encontrar o stockId deste material no local atual
-    // Precisamos buscar o stock específico
-    setMoveLoading(true);
-
-    // Buscar o stock deste material no local onde está atualmente
-    // Como não sabemos o local exato, buscamos na árvore
-    function findStockInTree(nodes: TreeNode[], materialCode: string): { stockId: string; locationId: string } | null {
-      for (const node of nodes) {
-        const stock = node.stocks.find((s) => s.material.code.toUpperCase() === materialCode.toUpperCase());
-        if (stock) {
-          return { stockId: stock.id, locationId: node.id };
-        }
-        if (node.children.length > 0) {
-          const found = findStockInTree(node.children, materialCode);
-          if (found) return found;
-        }
-      }
-      return null;
-    }
-
-    const found = findStockInTree(tree, moveFoundMaterial.code);
-    if (!found) {
-      setMoveLoading(false);
-      toast.error("Material não encontrado em nenhum local.");
-      return;
-    }
-
-    moveToLocationMutation.mutate({ stockId: found.stockId, locationId: moveTargetId });
-  }
 
   return (
     <div className="space-y-4">
@@ -283,63 +324,66 @@ export default function EstoquePage() {
         <div className="flex-1">
           <SearchBox onJump={jump} />
 
-          {canEdit && (
+          {canEdit && selectedId && selected && (
             <Card className="mb-4">
               <CardHeader>
-                <CardTitle className="text-sm">Mover material para outro local</CardTitle>
+                <CardTitle className="text-sm">Mover material para "{selected.name}"</CardTitle>
               </CardHeader>
               <CardContent className="p-3">
                 <div className="flex flex-col sm:flex-row gap-2 items-end">
                   <div className="flex-1 min-w-0">
                     <Input
-                      value={moveCode}
+                      value={linkCode}
                       onChange={(e) => {
-                        setMoveCode(e.target.value.toUpperCase());
-                        setMoveFoundMaterial(null);
+                        setLinkCode(e.target.value.toUpperCase());
+                        setLinkFoundMaterial(null);
                       }}
-                      onKeyDown={(e) => e.key === "Enter" && handleMoveMaterial()}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          setLinkLoading(true);
+                          resolveMaterialByCode(linkCode).then((material) => {
+                            setLinkLoading(false);
+                            if (!material) {
+                              setLinkFoundMaterial(null);
+                              toast.error(`Material "${linkCode}" não encontrado em estoque.`);
+                              return;
+                            }
+                            setLinkFoundMaterial(material);
+                          });
+                        }
+                      }}
                       placeholder="Código do material (ex: 310571)"
                       className="text-[13px] font-mono"
                     />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <select
-                      value={moveTargetId ?? ""}
-                      onChange={(e) => setMoveTargetId(e.target.value || null)}
-                      className="w-full rounded-md border border-zinc-300 px-2.5 py-2 text-[13px] outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-800"
-                    >
-                      <option value="">Local de destino…</option>
-                      {locations.map((loc) => (
-                        <option key={loc.id} value={loc.id}>
-                          {loc.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
                   <Button
-                    onClick={handleMoveMaterial}
-                    disabled={moveLoading || !moveCode.trim() || !moveTargetId || !moveFoundMaterial}
+                    onClick={handleLinkMaterial}
+                    disabled={linkLoading || !linkCode.trim() || !linkFoundMaterial}
                     className="text-[13px] px-3"
                   >
-                    {moveLoading ? (
+                    {linkLoading ? (
                       <Loader2 className="h-4 w-4 animate-spin mr-2" />
                     ) : null}
                     Mover
                   </Button>
                 </div>
-                {moveFoundMaterial && (
+                {linkFoundMaterial && (
                   <div className="mt-2 p-2 rounded bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
                     <p className="text-[11px] font-semibold text-blue-800 dark:text-blue-300 mb-1">
-                      {moveFoundMaterial.code} — {moveFoundMaterial.name}
+                      {linkFoundMaterial.code} — {linkFoundMaterial.name}
                     </p>
                     <p className="text-[11px] text-blue-700 dark:text-blue-400">
-                      Local atual: {moveFoundMaterial.currentLocation}
+                      De: {linkFoundMaterial.currentLocation} → Para: {selected.name}
+                    </p>
+                    <p className="text-[11px] text-blue-700 dark:text-blue-400">
+                      Un: {linkFoundMaterial.unit} · Qtd: {linkFoundMaterial.quantity}
                     </p>
                   </div>
                 )}
-                {moveCode.trim() && !moveFoundMaterial && moveCode.length >= 2 && (
+                {linkCode.trim() && !linkFoundMaterial && linkCode.length >= 2 && (
                   <p className="text-[11px] text-zinc-500 mt-1">
-                    Digite 2+ caracteres e pressione Enter para buscar o material.
+                    Digite 2+ caracteres e pressione Enter para buscar o material em estoque.
                   </p>
                 )}
               </CardContent>
@@ -376,13 +420,6 @@ function StatCard({
   subtitle?: string;
   variant?: "default" | "secondary" | "destructive" | "outline";
 }) {
-  const variantClasses = {
-    default: "bg-muted border-muted/50",
-    secondary: "bg-zinc-100 border-zinc-200 dark:bg-zinc-800 dark:border-zinc-700",
-    destructive: "bg-red-50 border-red-100 dark:bg-red-950 dark:border-red-900",
-    outline: "border border-zinc-200 dark:border-zinc-700",
-  };
-
   return (
     <Card className="border-sm p-3">
       <CardContent className="p-3">

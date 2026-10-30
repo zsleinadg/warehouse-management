@@ -109,48 +109,30 @@ export async function PATCH(
       throw err;
     }
   } else {
-    // Mover para outro local: deletar do antigo, criar no novo
-    // Reposicionar irmãos no local antigo
-    const oldSiblings = await prisma.stock.findMany({
-      where: { locationId: stock.locationId, id: { not: stock.id } },
-      select: { id: true },
-      orderBy: { position: "asc" },
-    });
+    // Mover para outro local: atualizar locationId/position do stock existente.
+    // Evita delete+recreate com reposicionamento de todos os irmãos dentro de
+    // uma transação, que excedia o timeout do Prisma (P2028) quando há muitos itens.
+    // A reordenação fina dos irmãos pode ser feita depois via drag/drop.
 
-    // Determinar posição no novo local
-    const newSiblings = await prisma.stock.findMany({
-      where: { locationId: newLocationId },
+    // Garantir que o material não esteja já vinculado ao destino (unique [materialId, locationId])
+    const existingAtDestination = await prisma.stock.findFirst({
+      where: { materialId: stock.materialId, locationId: newLocationId },
       select: { id: true },
-      orderBy: { position: "asc" },
     });
-    const targetPos = Math.min(newPosition ?? newSiblings.length, newSiblings.length);
+    if (existingAtDestination) {
+      return invalid(
+        [{ field: "locationId", message: "Este material já está vinculado a este local." }],
+        409,
+      );
+    }
+
+    const targetPos = Math.min(newPosition ?? 0, 0);
 
     try {
-      await withWriteRetry(() =>
-        prisma.$transaction([
-          // Remover do local antigo e reposicionar irmãos
-          ...oldSiblings.map((sibling, idx) =>
-            prisma.stock.update({ where: { id: sibling.id }, data: { position: idx } }),
-          ),
-          // Deletar o stock do local antigo
-          prisma.stock.delete({ where: { id: stock.id } }),
-          // Inserir no novo local na posição correta
-          ...newSiblings.map((sibling, idx) =>
-            prisma.stock.update({
-              where: { id: sibling.id },
-              data: { position: idx < targetPos ? idx : idx + 1 },
-            }),
-          ),
-          prisma.stock.create({
-            data: {
-              id: stock.id,
-              materialId: stock.materialId,
-              locationId: newLocationId,
-              position: targetPos,
-            },
-          }),
-        ]),
-      );
+      await prisma.stock.update({
+        where: { id: stock.id },
+        data: { locationId: newLocationId, position: targetPos },
+      });
     } catch (err) {
       if (isWriteConflict(err)) {
         return invalid(
