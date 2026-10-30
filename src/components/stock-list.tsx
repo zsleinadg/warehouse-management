@@ -59,6 +59,13 @@ export default function StockList({
     }
   }, [highlightCode, node?.id]);
 
+  const filteredStocks = useMemo(() => {
+    const stocks = node?.stocks ?? [];
+    if (stockFilter === "with") return stocks.filter((s) => Number(s.quantity) > 0);
+    if (stockFilter === "zero") return stocks.filter((s) => Number(s.quantity) === 0);
+    return stocks;
+  }, [node, stockFilter]);
+
   if (!node) {
     return (
       <div className="px-5 py-5 text-center">
@@ -68,13 +75,6 @@ export default function StockList({
       </div>
     );
   }
-
-  const filteredStocks = useMemo(() => {
-    const stocks = node.stocks ?? [];
-    if (stockFilter === "with") return stocks.filter((s) => Number(s.quantity) > 0);
-    if (stockFilter === "zero") return stocks.filter((s) => Number(s.quantity) === 0);
-    return stocks;
-  }, [node, stockFilter]);
 
   function handleRemoveClick(stockId: string, label: string): void {
     setStockToRemove({ id: stockId, label });

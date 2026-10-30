@@ -98,6 +98,7 @@ function CodePicker({ code, onChange }: { code: string; onChange: (code: string,
 
   // Sync localCode with prop changes (e.g., when row is cleared)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLocalCode(code);
   }, [code]);
 

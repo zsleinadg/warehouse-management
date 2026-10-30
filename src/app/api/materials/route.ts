@@ -24,6 +24,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const q = searchParams.get("q")?.trim() ?? "";
   const onlyWithStock = searchParams.get("onlyWithStock") === "true";
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const where: any = { disabled: false };
   if (q) {
     where.OR = [
@@ -74,7 +75,8 @@ function getDefaultQuantity(unit: string): number {
   return 1000; // fallback
 }
 
-async function getDefaultLocationId(tx: any) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function getDefaultLocationId(tx: any) {
   // Find first enabled location (root level preferred)
   const location = await tx.location.findFirst({
     where: { disabled: false, parentId: null },
