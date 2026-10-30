@@ -30,7 +30,7 @@ async function fetchTree(): Promise<LocationNode[]> {
 }
 
 async function searchCatalog(q: string): Promise<CatalogOption[]> {
-  const params = new URLSearchParams({ q, take: "8" });
+  const params = new URLSearchParams({ q, take: "8", inStock: "true" });
   const response = await fetch(`/api/catalog?${params.toString()}`);
   if (!response.ok) throw new Error("Failed to search catalog");
   const body = await safeJson(response);
@@ -77,9 +77,8 @@ interface MaterialRow {
 
 function CodePicker({ code, onChange }: { code: string; onChange: (code: string, item: CatalogOption | null) => void }) {
   const [open, setOpen] = useState(false);
-  const debounced = useDebounced(code.trim(), 300);
-  const lastMatchedRef = useRef<string>("");
-  const lockedRef = useRef<string>("");
+  const [localCode, setLocalCode] = useState(code);
+  const debounced = useDebounced(localCode.trim(), 300);
   const onChangeRef = useRef(onChange);
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -97,32 +96,36 @@ function CodePicker({ code, onChange }: { code: string; onChange: (code: string,
     return acc;
   }, []);
 
+  // Sync localCode with prop changes (e.g., when row is cleared)
   useEffect(() => {
-    if (lockedRef.current !== "" && debounced === lockedRef.current) return;
-    if (isFetching) return;
-    if (debounced.length >= 2) {
-      const match = preferBlct(options, debounced);
-      const matchKey = `${debounced}-${match?.id ?? "none"}`;
-      if (lastMatchedRef.current !== matchKey) {
-        lastMatchedRef.current = matchKey;
-        onChangeRef.current(debounced, match);
-      }
-    } else {
-      lastMatchedRef.current = "";
-    }
-  }, [debounced, options, isFetching]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLocalCode(code);
+  }, [code]);
+
+  const handleChange = (value: string) => {
+    setLocalCode(value);
+    onChangeRef.current(value, null);
+    setOpen(true);
+  };
+
+  const handleSelect = (item: CatalogOption) => {
+    setLocalCode(item.code);
+    onChangeRef.current(item.code, item);
+    setOpen(false);
+  };
+
+  const handleBlur = () => {
+    // Delay to allow onMouseDown to fire first
+    setTimeout(() => setOpen(false), 150);
+  };
 
   return (
     <div className="relative">
       <FormInput
-        value={code}
-        onChange={(e) => {
-          lockedRef.current = "";
-          onChange(e.target.value, null);
-          setOpen(true);
-        }}
+        value={localCode}
+        onChange={(e) => handleChange(e.target.value)}
         onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onBlur={handleBlur}
         label="Código do material"
         placeholder="Digite o código…"
         autoComplete="off"
@@ -133,12 +136,7 @@ function CodePicker({ code, onChange }: { code: string; onChange: (code: string,
             <button
               key={o.code}
               type="button"
-              onMouseDown={() => {
-                lastMatchedRef.current = `${o.code}-${o.id}`;
-                lockedRef.current = o.code;
-                onChangeRef.current(o.code, o);
-                setOpen(false);
-              }}
+              onMouseDown={() => handleSelect(o)}
               className="block w-full px-3 py-2 text-left text-sm hover:bg-muted"
             >
               <span className="font-mono font-semibold text-primary">{o.code}</span>{" "}

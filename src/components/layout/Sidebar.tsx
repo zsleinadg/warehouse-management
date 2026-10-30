@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
@@ -19,9 +19,13 @@ import {
   GitBranch,
   Menu,
   ChevronLeft,
+  Lock,
 } from "lucide-react";
 import { useAppStore } from "@/store/useAppStore";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { toast } from "sonner";
+
+const BLOCKED_ROUTES = ["/auditoria", "/relatorios", "/isometrica"];
 
 const NAV = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -34,9 +38,9 @@ const NAV = [
   { href: "/saidas", label: "Saídas", icon: Truck },
   { href: "/devolucoes", label: "Devoluções", icon: RotateCcw },
   { href: "/contagem", label: "Contagem", icon: ClipboardList },
-  { href: "/auditoria", label: "Auditoria", icon: Search },
-  { href: "/relatorios", label: "Relatórios", icon: BarChart },
-  { href: "/isometrica", label: "Isométrica", icon: GitBranch },
+  { href: "/auditoria", label: "Auditoria", icon: Search, blocked: true },
+  { href: "/relatorios", label: "Relatórios", icon: BarChart, blocked: true },
+  { href: "/isometrica", label: "Isométrica", icon: GitBranch, blocked: true },
 ];
 
 export function SidebarLogo({ expanded }: { expanded: boolean }) {
@@ -65,31 +69,49 @@ export function SidebarNavLinks({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { setCurrentView } = useAppStore();
+
+  function handleClick(item: typeof NAV[number]): void {
+    if (item.blocked) {
+      toast.error(`A funcionalidade "${item.label}" está bloqueada.`);
+      return;
+    }
+    setCurrentView(item.label);
+    onNavigate?.();
+    void router.push(item.href);
+  }
 
   return (
     <nav className="flex-1 space-y-1 p-2 overflow-y-auto overflow-x-hidden" aria-label="Navigation">
       {NAV.map((item) => {
         const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
         const Icon = item.icon;
+        const isBlocked = item.blocked ?? false;
 
         const linkContent = (
           <Link
             href={item.href}
-            onClick={() => {
-              setCurrentView(item.label);
-              onNavigate?.();
+            onClick={(e) => {
+              e.preventDefault();
+              handleClick(item);
             }}
             className={cn(
               "flex items-center h-10 px-2.5 rounded-lg transition-colors duration-200 group relative",
               active
                 ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                : isBlocked
+                  ? "text-sidebar-muted opacity-60 cursor-not-allowed hover:opacity-60"
+                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             )}
             aria-current={active ? "page" : undefined}
           >
             <div className="flex shrink-0 items-center justify-center w-5 h-5">
-              <Icon size={20} strokeWidth={active ? 2.5 : 2} />
+              {isBlocked ? (
+                <Lock size={18} strokeWidth={1.5} className="text-sidebar-muted" />
+              ) : (
+                <Icon size={20} strokeWidth={active ? 2.5 : 2} />
+              )}
             </div>
             <span
               className={cn(
@@ -101,6 +123,11 @@ export function SidebarNavLinks({
             >
               {item.label}
             </span>
+            {isBlocked && (
+              <span className="ml-auto text-[10px] text-sidebar-muted opacity-50">
+                🔒
+              </span>
+            )}
           </Link>
         );
 
@@ -109,7 +136,7 @@ export function SidebarNavLinks({
             <Tooltip key={item.href}>
               <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
               <TooltipContent side="right">
-                <span>{item.label}</span>
+                <span>{item.label}{isBlocked ? " (bloqueado)" : ""}</span>
               </TooltipContent>
             </Tooltip>
           );

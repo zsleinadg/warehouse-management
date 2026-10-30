@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { authorize } from "@/lib/roles";
 
+function toNum(val: unknown): number {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === "number") return val;
+  return Number(val);
+}
+
 /** Dashboard aggregates: counts, valuation, low stock and recent activity. */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const auth = await authorize(request, ["ADMIN", "OPERATOR", "VIEWER"]);
@@ -99,7 +105,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const item: ActivityItem = {
       code: m.material.code,
       name: m.material.name,
-      quantity: m.quantity,
+      quantity: toNum(m.quantity),
       location,
       createdAt: m.createdAt.toISOString(),
     };
@@ -125,7 +131,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         groups.set(key, group);
       }
       group.items.push(item);
-      group.totalQuantity += m.type === "RETURN" ? -m.quantity : m.quantity;
+      group.totalQuantity += m.type === "RETURN" ? -toNum(m.quantity) : toNum(m.quantity);
       if (item.createdAt > group.createdAt) {
         group.createdAt = item.createdAt;
         group.user = m.user ?? group.user;
@@ -150,7 +156,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         groups.set(key, group);
       }
       group.items.push(item);
-      group.totalQuantity += m.quantity;
+      group.totalQuantity += toNum(m.quantity);
       if (item.createdAt > group.createdAt) {
         group.createdAt = item.createdAt;
         group.user = m.user ?? group.user;
@@ -176,7 +182,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         groups.set(key, group);
       }
       group.items.push(item);
-      group.totalQuantity += m.quantity;
+      group.totalQuantity += toNum(m.quantity);
       if (item.createdAt > group.createdAt) {
         group.createdAt = item.createdAt;
         group.user = m.user ?? group.user;
@@ -192,7 +198,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         countId: null,
         createdAt: item.createdAt,
         user: m.user,
-        totalQuantity: m.quantity,
+        totalQuantity: toNum(m.quantity),
         items: [item],
       });
     }
@@ -204,7 +210,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const totals = new Map<string, { quantity: number; material: (typeof stocks)[number]["material"] }>();
   for (const stock of stocks) {
     const entry = totals.get(stock.material.id) ?? { quantity: 0, material: stock.material };
-    entry.quantity += stock.quantity;
+    entry.quantity += toNum(stock.quantity);
     totals.set(stock.material.id, entry);
   }
 

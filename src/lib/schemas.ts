@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+// Accepts both string and number inputs: the form's onBlur already converts
+// the quantity to a number (parseFloat/parseInt), so the schema must not
+// require a string, otherwise submission validation fails.
+const number = z.coerce.number().nonnegative();
+
 export const materialSchema = z.object({
   code: z.string().min(1, "Código é obrigatório"),
   name: z.string().min(1, "Nome é obrigatório"),
@@ -20,7 +25,7 @@ export const purchaseInvoiceSchema = z.object({
   lines: z.array(z.object({
     materialId: z.string().min(1, "Material é obrigatório"),
     locationId: z.string().min(1, "Local é obrigatório"),
-    quantity: z.coerce.number().int().min(1, "Quantidade deve ser maior que zero"),
+    quantity: number,
     unitCostCents: z.coerce.number().int().min(0, "Custo não pode ser negativo"),
   })).min(1, "Pelo menos um item é obrigatório"),
 });
@@ -35,7 +40,7 @@ export const issueSchema = z.object({
   notes: z.string().optional(),
   items: z.array(z.object({
     materialId: z.string().min(1, "Material é obrigatório"),
-    quantity: z.coerce.number().int().min(1, "Quantidade deve ser maior que zero"),
+    quantity: number,
   })).min(1, "Pelo menos um item é obrigatório"),
 });
 
@@ -44,7 +49,7 @@ export const returnSchema = z.object({
   reason: z.string().min(1, "Motivo é obrigatório"),
   items: z.array(z.object({
     materialId: z.string().min(1, "Material é obrigatório"),
-    quantity: z.coerce.number().int().min(1, "Quantidade deve ser maior que zero"),
+    quantity: number,
   })).min(1, "Pelo menos um item é obrigatório"),
 });
 
@@ -53,7 +58,7 @@ export const adjustmentSchema = z.object({
   reason: z.string().min(1, "Motivo é obrigatório"),
   items: z.array(z.object({
     materialId: z.string().min(1, "Material é obrigatório"),
-    countedQuantity: z.coerce.number().int().min(0),
+    countedQuantity: number,
   })).min(1, "Pelo menos um item é obrigatório"),
 });
 

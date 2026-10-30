@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { authorize } from "@/lib/roles";
 
+function toNum(val: unknown): number {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === "number") return val;
+  return Number(val);
+}
+
 /** Full detail of one count session, every counted line included. */
 export async function GET(
   request: NextRequest,
@@ -42,7 +48,7 @@ export async function GET(
     data: {
       ...count,
       createdAt: count.createdAt.toISOString(),
-      divergenceCount: count.items.filter((item) => item.difference !== 0).length,
+      divergenceCount: count.items.filter((item) => toNum(item.difference) !== 0).length,
     },
   });
 }
