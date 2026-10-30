@@ -34,6 +34,7 @@ interface CatalogMaterial {
   name: string;
   unit: string;
   disabled: boolean;
+  totalQuantity?: number;
 }
 
 interface LocationOption {
@@ -87,7 +88,7 @@ async function fetchIssues(status: string, kind: string): Promise<IssueSummary[]
 }
 
 async function fetchCatalog(): Promise<CatalogMaterial[]> {
-  const response = await fetch("/api/materials");
+  const response = await fetch("/api/materials?onlyWithStock=true");
   if (!response.ok) throw new Error("Failed to load catalog");
   const body = await safeJson(response);
   return ((body as { data?: CatalogMaterial[] })?.data ?? []).filter((m: CatalogMaterial) => !m.disabled);

@@ -87,22 +87,100 @@ export async function POST(request: NextRequest) {
         systemQuantity: Number(s.quantity),
       }));
     } else if (materialIds && materialIds.length > 0) {
-      // Get system quantity for each material across all locations
-      for (const materialId of materialIds) {
+      // materialIds podem ser Material.id, Material.code ou CatalogMaterial.id
+      // Estratégia:
+      // 1. Primeiro resolve todos os CatalogMaterial IDs para seus codes
+      // 2. Busca Materials existentes por id, code ou pelos codes do catálogo
+      // 3. Cria apenas os Materials que não existem
+
+      const materialMap = new Map<string, string>(); // inputId -> Material.id
+
+      // Passo 1: Busca Materials que coincidam diretamente com os IDs de entrada (Material.id ou Material.code)
+      const directMaterials = await prisma.material.findMany({
+        where: {
+          OR: [
+            { id: { in: materialIds } },
+            { code: { in: materialIds } },
+          ],
+        },
+        select: { id: true, code: true },
+      });
+      for (const m of directMaterials) {
+        materialMap.set(m.id, m.id);
+        materialMap.set(m.code, m.id);
+      }
+
+      // Passo 2: Para IDs não resolvidos, assume que são CatalogMaterial.id e busca seus codes
+      const unresolvedIds = materialIds.filter((id) => !materialMap.has(id));
+      if (unresolvedIds.length > 0) {
+        const catalogMaterials = await prisma.catalogMaterial.findMany({
+          where: { id: { in: unresolvedIds } },
+          select: { id: true, code: true, name: true, unit: true },
+        });
+
+        // Extrai todos os codes do catálogo encontrados
+        const catalogCodes = catalogMaterials.map((c) => c.code);
+
+        // Passo 3: Busca Materials existentes por esses codes
+        const existingMaterials = await prisma.material.findMany({
+          where: { code: { in: catalogCodes } },
+          select: { id: true, code: true },
+        });
+        for (const m of existingMaterials) {
+          materialMap.set(m.code, m.id);
+          // Também mapeia o CatalogMaterial.id para o Material.id
+          const cat = catalogMaterials.find((c) => c.code === m.code);
+          if (cat) materialMap.set(cat.id, m.id);
+        }
+
+        // Passo 4: Cria Materials para codes que não existem
+        const existingCodes = new Set(existingMaterials.map((m) => m.code));
+        const toCreate = catalogMaterials.filter((c) => !existingCodes.has(c.code));
+
+        for (const cat of toCreate) {
+          const newMaterial = await prisma.material.create({
+            data: {
+              code: cat.code,
+              name: cat.name,
+              unit: cat.unit || 'UN',
+              minStock: 0,
+              costCents: 0,
+            },
+            select: { id: true, code: true },
+          });
+          materialMap.set(cat.id, newMaterial.id);
+          materialMap.set(newMaterial.code, newMaterial.id);
+        }
+
+        // Para os que já existiam, mapeia o CatalogMaterial.id
+        for (const cat of catalogMaterials.filter((c) => existingCodes.has(c.code))) {
+          const mat = existingMaterials.find((m) => m.code === cat.code);
+          if (mat) materialMap.set(cat.id, mat.id);
+        }
+      }
+
+      // Passo 5: Monta a lista final de items para contagem
+      for (const inputId of materialIds) {
+        const materialId = materialMap.get(inputId);
+        if (!materialId) {
+          console.log(`[POST /api/counts] Material não encontrado: ${inputId}`);
+          continue;
+        }
         const totalQty = await prisma.stock.aggregate({
           where: { materialId },
           _sum: { quantity: true },
         });
+        const systemQty = Number(totalQty._sum.quantity ?? 0);
         itemsToCount.push({
           materialId,
-          systemQuantity: Number(totalQty._sum.quantity ?? 0),
+          systemQuantity: systemQty,
         });
       }
     }
 
     if (itemsToCount.length === 0) {
       return NextResponse.json(
-        { error: "Nenhum item encontrado para contagem" },
+        { error: "Nenhum material válido encontrado para contagem" },
         { status: 400 }
       );
     }

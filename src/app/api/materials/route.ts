@@ -22,49 +22,73 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q")?.trim() ?? "";
+  const onlyWithStock = searchParams.get("onlyWithStock") === "true";
 
-  let materials;
+  const where: any = { disabled: false };
   if (q) {
-    materials = await prisma.material.findMany({
-      where: {
-        AND: [
-          { disabled: false },
-          {
-            OR: [
-              { code: { contains: q, mode: "insensitive" } },
-              { name: { contains: q, mode: "insensitive" } },
-            ],
-          },
-        ],
-      },
-      orderBy: { code: "asc" },
-      take: 20,
-      select: {
-        id: true,
-        code: true,
-        name: true,
-        unit: true,
-        minStock: true,
-        costCents: true,
-        disabled: true,
-      },
-    });
-  } else {
-    materials = await prisma.material.findMany({
-      orderBy: { code: "asc" },
-      select: {
-        id: true,
-        code: true,
-        name: true,
-        unit: true,
-        minStock: true,
-        costCents: true,
-        disabled: true,
-      },
-    });
+    where.OR = [
+      { code: { contains: q, mode: "insensitive" } },
+      { name: { contains: q, mode: "insensitive" } },
+    ];
+  }
+  if (onlyWithStock) {
+    where.stocks = { some: { quantity: { gt: 0 } } };
   }
 
-  return NextResponse.json({ data: materials });
+  const materials = await prisma.material.findMany({
+    where,
+    orderBy: { code: "asc" },
+    take: 200,
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      unit: true,
+      minStock: true,
+      costCents: true,
+      disabled: true,
+      stocks: {
+        select: { quantity: true },
+      },
+    },
+  });
+
+  return NextResponse.json({
+    data: materials.map((m) => ({
+      id: m.id,
+      code: m.code,
+      name: m.name,
+      unit: m.unit,
+      minStock: m.minStock,
+      costCents: m.costCents,
+      disabled: m.disabled,
+      totalQuantity: m.stocks.reduce((sum, s) => sum + Number(s.quantity), 0),
+    })),
+  });
+}
+
+function getDefaultQuantity(unit: string): number {
+  const upper = unit.toUpperCase();
+  if (["UN", "PC", "CX", "PÇ", "PEC", "PEÇA"].includes(upper)) return 1000;
+  if (["M", "MM", "CM", "KM", "KG", "G", "L", "ML"].includes(upper)) return 10000;
+  return 1000; // fallback
+}
+
+async function getDefaultLocationId(tx: any) {
+  // Find first enabled location (root level preferred)
+  const location = await tx.location.findFirst({
+    where: { disabled: false, parentId: null },
+    orderBy: { position: "asc" },
+    select: { id: true },
+  });
+  if (location) return location.id;
+  // Fallback: any enabled location
+  const anyLoc = await tx.location.findFirst({
+    where: { disabled: false },
+    orderBy: { position: "asc" },
+    select: { id: true },
+  });
+  return anyLoc?.id ?? null;
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -93,25 +117,45 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const material = await prisma.material.create({
-    data: {
-      code: parsed.data.code,
-      name: parsed.data.name,
-      unit: parsed.data.unit,
-      minStock: parsed.data.minStock,
-      costCents: parsed.data.costCents,
-      disabled: parsed.data.disabled,
-    },
-    select: {
-      id: true,
-      code: true,
-      name: true,
-      unit: true,
-      minStock: true,
-      costCents: true,
-      disabled: true,
-    },
+  // Create material and default stock in a transaction
+  const result = await prisma.$transaction(async (tx) => {
+    const material = await tx.material.create({
+      data: {
+        code: parsed.data.code,
+        name: parsed.data.name,
+        unit: parsed.data.unit,
+        minStock: parsed.data.minStock,
+        costCents: parsed.data.costCents,
+        disabled: parsed.data.disabled,
+      },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        unit: true,
+        minStock: true,
+        costCents: true,
+        disabled: true,
+      },
+    });
+
+    // Create default stock in the first/root location
+    const defaultLocationId = await getDefaultLocationId(tx);
+    if (defaultLocationId) {
+      const defaultQty = getDefaultQuantity(parsed.data.unit);
+      const position = await tx.stock.count({ where: { locationId: defaultLocationId } });
+      await tx.stock.create({
+        data: {
+          materialId: material.id,
+          locationId: defaultLocationId,
+          quantity: defaultQty,
+          position,
+        },
+      });
+    }
+
+    return material;
   });
 
-  return NextResponse.json({ data: material }, { status: 201 });
+  return NextResponse.json({ data: result }, { status: 201 });
 }
