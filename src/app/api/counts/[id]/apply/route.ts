@@ -43,7 +43,7 @@ export async function POST(
   try {
     await prisma.$transaction(async (tx) => {
       for (const item of existingCount.items) {
-        const difference = item.countedQuantity! - item.systemQuantity;
+        const difference = Number(item.countedQuantity) - Number(item.systemQuantity);
 
         if (difference !== 0) {
           // Update stock quantity

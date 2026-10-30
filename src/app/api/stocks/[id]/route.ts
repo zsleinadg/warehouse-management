@@ -4,7 +4,10 @@ import prisma from "@/lib/prisma";
 import { authorize } from "@/lib/roles";
 
 const paramsSchema = z.object({ id: z.uuid("Invalid stock") });
-const moveSchema = z.object({ position: z.coerce.number().int().min(0) });
+const moveSchema = z.object({
+  position: z.coerce.number().int().min(0).optional(),
+  locationId: z.string().uuid("Invalid location").optional(),
+});
 
 function invalid(issues: { field: string; message: string }[], status: number) {
   return NextResponse.json({ errors: issues }, { status });
@@ -33,7 +36,7 @@ async function withWriteRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T>
   throw lastError;
 }
 
-/** Move a stock within its location, renumbering siblings in one transaction. */
+/** Move a stock within its location or to another location. */
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -61,40 +64,84 @@ export async function PATCH(
     return invalid(issues, 400);
   }
 
+  const { position: newPosition, locationId: newLocationId } = parsedBody.data;
+
   const stock = await prisma.stock.findUnique({
     where: { id: parsedParams.data.id },
-    select: { id: true, locationId: true },
+    select: { id: true, locationId: true, position: true, materialId: true },
   });
   if (!stock) {
     return invalid([{ field: "id", message: "Stock not found" }], 404);
   }
 
-  const siblings = await prisma.stock.findMany({
-    where: { locationId: stock.locationId, id: { not: stock.id } },
-    select: { id: true },
-    orderBy: { position: "asc" },
-  });
+  const sameLocation = !newLocationId || newLocationId === stock.locationId;
 
-  const target = Math.min(parsedBody.data.position, siblings.length);
-  const siblingIds = siblings.map((sibling) => sibling.id);
-  const ordered = [...siblingIds.slice(0, target), stock.id, ...siblingIds.slice(target)];
+  if (sameLocation) {
+    // Apenas reordenar dentro do mesmo local
+    const siblings = await prisma.stock.findMany({
+      where: { locationId: stock.locationId, id: { not: stock.id } },
+      select: { id: true },
+      orderBy: { position: "asc" },
+    });
+    const target = Math.min(newPosition ?? stock.position, siblings.length);
+    const siblingIds = siblings.map((sibling) => sibling.id);
+    const ordered = [
+      ...siblingIds.slice(0, target),
+      stock.id,
+      ...siblingIds.slice(target),
+    ];
 
-  try {
-    await withWriteRetry(() =>
-      prisma.$transaction(
-        ordered.map((id, position) =>
-          prisma.stock.update({ where: { id }, data: { position } }),
+    try {
+      await withWriteRetry(() =>
+        prisma.$transaction(
+          ordered.map((id, position) =>
+            prisma.stock.update({ where: { id }, data: { position } }),
+          ),
         ),
-      ),
-    );
-  } catch (err) {
-    if (isWriteConflict(err)) {
+      );
+    } catch (err) {
+      if (isWriteConflict(err)) {
+        return invalid(
+          [{ field: "position", message: "A ordem mudou agora mesmo — tente mover de novo" }],
+          409,
+        );
+      }
+      throw err;
+    }
+  } else {
+    // Mover para outro local: atualizar locationId/position do stock existente.
+    // Evita delete+recreate com reposicionamento de todos os irmãos dentro de
+    // uma transação, que excedia o timeout do Prisma (P2028) quando há muitos itens.
+    // A reordenação fina dos irmãos pode ser feita depois via drag/drop.
+
+    // Garantir que o material não esteja já vinculado ao destino (unique [materialId, locationId])
+    const existingAtDestination = await prisma.stock.findFirst({
+      where: { materialId: stock.materialId, locationId: newLocationId },
+      select: { id: true },
+    });
+    if (existingAtDestination) {
       return invalid(
-        [{ field: "position", message: "A ordem mudou agora mesmo — tente mover de novo" }],
+        [{ field: "locationId", message: "Este material já está vinculado a este local." }],
         409,
       );
     }
-    throw err;
+
+    const targetPos = Math.min(newPosition ?? 0, 0);
+
+    try {
+      await prisma.stock.update({
+        where: { id: stock.id },
+        data: { locationId: newLocationId, position: targetPos },
+      });
+    } catch (err) {
+      if (isWriteConflict(err)) {
+        return invalid(
+          [{ field: "locationId", message: "A ordem mudou agora mesmo — tente mover de novo" }],
+          409,
+        );
+      }
+      throw err;
+    }
   }
 
   const moved = await prisma.stock.findUnique({
@@ -103,6 +150,7 @@ export async function PATCH(
       id: true,
       quantity: true,
       position: true,
+      locationId: true,
       material: { select: { code: true, name: true } },
     },
   });

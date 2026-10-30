@@ -27,5 +27,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     orderBy: { position: "asc" },
   });
 
-  return NextResponse.json({ data: buildTree(locations, stocks) });
+  return NextResponse.json({
+    data: buildTree(
+      locations,
+      stocks.map((s) => ({ ...s, quantity: Number(s.quantity) })),
+    ),
+  });
 }

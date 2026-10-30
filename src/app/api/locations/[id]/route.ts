@@ -142,6 +142,28 @@ export async function DELETE(
     );
   }
 
+  // Reatribuir ReturnItems que apontam para este local para um local padrão,
+  // evitando violação de chave estrangeira (Restrict). O saldo da devolução
+  // já foi devolvido ao estoque no momento da criação da devolução; apenas
+  // ajustamos o registro histórico da localização.
+  const returnsLinked = await prisma.returnItem.findMany({
+    where: { locationId: id },
+    select: { id: true },
+  });
+  if (returnsLinked.length > 0) {
+    const defaultLocation = await prisma.location.findFirst({
+      where: { id: { not: id }, disabled: false },
+      orderBy: { position: "asc" },
+      select: { id: true },
+    });
+    if (defaultLocation) {
+      await prisma.returnItem.updateMany({
+        where: { locationId: id },
+        data: { locationId: defaultLocation.id },
+      });
+    }
+  }
+
   await prisma.location.delete({
     where: { id },
   });

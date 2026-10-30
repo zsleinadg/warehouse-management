@@ -8,6 +8,7 @@ const querySchema = z.object({
   plant: z.string().trim().max(16).default(""),
   take: z.coerce.number().int().min(1).max(200).default(50),
   skip: z.coerce.number().int().min(0).default(0),
+  inStock: z.coerce.boolean().default(false),
 });
 
 /**
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const { q, plant, take, skip } = parsed.data;
+  const { q, plant, take, skip, inStock } = parsed.data;
   const where = {
     ...(plant ? { plant } : {}),
     ...(q
@@ -78,19 +79,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const onHand = new Map(
     holdings.map((material) => [
       material.code,
-      material.stocks.reduce((sum, stock) => sum + stock.quantity, 0),
+      material.stocks.reduce((sum, stock) => sum + Number(stock.quantity), 0),
     ]),
   );
 
+  let filteredRows = rows.map((row) => {
+    const totalQuantity = onHand.get(row.code) ?? 0;
+    return {
+      ...row,
+      inWarehouse: onHand.has(row.code),
+      totalQuantity,
+    };
+  });
+
+  if (inStock) {
+    filteredRows = filteredRows.filter((row) => row.totalQuantity > 0);
+  }
+
   return NextResponse.json({
-    data: rows.map((row) => {
-      const totalQuantity = onHand.get(row.code) ?? 0;
-      return {
-        ...row,
-        inWarehouse: onHand.has(row.code),
-        totalQuantity,
-      };
-    }),
+    data: filteredRows,
     meta: { total, take, skip },
   });
 }

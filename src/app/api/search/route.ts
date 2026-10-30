@@ -69,11 +69,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       name: material.name,
       unit: material.unit,
       minStock: material.minStock,
-      totalQuantity: material.stocks.reduce((sum, s) => sum + s.quantity, 0),
+      totalQuantity: material.stocks.reduce((sum, s) => sum + Number(s.quantity), 0),
       locations: material.stocks.map((stock) => ({
         locationId: stock.locationId,
         path: paths.get(stock.locationId) ?? [],
-        quantity: stock.quantity,
+        quantity: Number(stock.quantity),
         position: stock.position,
         needsReview: stock.needsReview,
       })),

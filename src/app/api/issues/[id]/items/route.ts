@@ -5,7 +5,8 @@ import { authorize } from "@/lib/roles";
 
 const itemSchema = z.object({
   materialId: z.uuid("Invalid material"),
-  quantity: z.coerce.number().int().min(1, "Quantity must be at least 1"),
+  quantity: z.coerce.number().positive("Quantity must be at least 1"),
+  nfNumber: z.string().trim().optional(),
 });
 
 const addSchema = z.object({
@@ -111,7 +112,7 @@ export async function POST(
       // Histórico de cada acréscimo (vez, qtd, quem, quando) — a linha soma,
       // mas cada adição fica registrada e visível no detalhe da OT.
       await tx.issueItemAddition.create({
-        data: { issueItemId: issueItemId as string, quantity: item.quantity, userId: auth.user.userId },
+        data: { issueItemId: issueItemId as string, quantity: item.quantity, nfNumber: item.nfNumber ?? undefined, userId: auth.user.userId },
         select: { id: true },
       });
     }

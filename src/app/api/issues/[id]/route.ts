@@ -2,18 +2,30 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
 import { authorize } from "@/lib/roles";
-import { addStock, getIssueOrigins, InsufficientBalanceError, recordMovement, removeStock, totalOnHand } from "@/lib/stock-ledger";
+import { addStock, getIssueOrigins, InsufficientBalanceError, recordMovement, recordMovements, removeStock, totalOnHand } from "@/lib/stock-ledger";
 import { assertPlaceable } from "@/lib/locations";
+
+function toNum(val: unknown): number {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === "number") return val;
+  return Number(val);
+}
 
 const returnTargetSchema = z.object({
   materialId: z.uuid("Invalid material"),
   locationId: z.uuid("Invalid location"),
 });
 
+const fulfilledQuantitySchema = z.object({
+  itemId: z.uuid("Invalid item"),
+  quantity: z.coerce.number().min(0, "Quantity cannot be negative"),
+});
+
 const actionSchema = z.object({
   action: z.enum(["close", "cancel", "cancel-closed"], "Action must be close, cancel or cancel-closed"),
   reason: z.string().trim().max(500).optional(),
   returnsTo: z.array(returnTargetSchema).max(200).optional(),
+  fulfilledQuantities: z.array(fulfilledQuantitySchema).max(200).optional(),
 });
 
 function invalid(issues: { field: string; message: string }[], status: number) {
@@ -178,7 +190,7 @@ export async function PATCH(
         400,
       );
     }
-    const fulfilled = issue.items.filter((item) => item.fulfilledQuantity > 0);
+    const fulfilled = issue.items.filter((item) => toNum(item.fulfilledQuantity) > 0);
     if (fulfilled.length === 0) {
       return invalid(
         [{ field: "items", message: "Nothing was fulfilled, use cancel on a draft instead" }],
@@ -210,41 +222,42 @@ export async function PATCH(
     }
 
     const reason = `OT cancelada: ${parsed.data.reason.trim()}`;
-    const reverted = await prisma.$transaction(async (tx) => {
-      for (const item of fulfilled) {
-        let locationId = targetByMaterial.get(item.materialId);
-        if (!locationId) {
-          // Sem local informado: devolve onde há mais saldo do material.
-          const top = await tx.stock.findFirst({
-            where: { materialId: item.materialId },
-            orderBy: { quantity: "desc" },
-            select: { locationId: true },
-          });
-          locationId = top?.locationId;
+    const reverted = await prisma.$transaction(
+      async (tx) => {
+        for (const item of fulfilled) {
+          let locationId = targetByMaterial.get(item.materialId);
           if (!locationId) {
-            const first = await tx.location.findFirst({
-              where: { disabled: false },
-              orderBy: { createdAt: "asc" },
-              select: { id: true },
+            // Sem local informado: devolve onde há mais saldo do material.
+            const top = await tx.stock.findFirst({
+              where: { materialId: item.materialId },
+              orderBy: { quantity: "desc" },
+              select: { locationId: true },
             });
-            if (!first) {
-              throw new Error("No location available for return");
+            locationId = top?.locationId;
+            if (!locationId) {
+              const first = await tx.location.findFirst({
+                where: { disabled: false },
+                orderBy: { createdAt: "asc" },
+                select: { id: true },
+              });
+              if (!first) {
+                throw new Error("No location available for return");
+              }
+              locationId = first.id;
             }
-            locationId = first.id;
           }
-        }
-        await addStock(tx, {
-          materialId: item.materialId,
-          locationId,
-          quantity: item.fulfilledQuantity,
-        });
-        await recordMovement(tx, {
-          type: "RETURN",
-          quantity: item.fulfilledQuantity,
-          materialId: item.materialId,
-          userId: auth.user.userId,
-          destination: issue.ot ?? issue.destination,
-          nfNumber: issue.nfNumber ?? undefined,
+          await addStock(tx, {
+            materialId: item.materialId,
+            locationId,
+            quantity: toNum(item.fulfilledQuantity),
+          });
+          await recordMovement(tx, {
+            type: "RETURN",
+            quantity: toNum(item.fulfilledQuantity),
+            materialId: item.materialId,
+            userId: auth.user.userId,
+            destination: issue.ot ?? issue.destination,
+            nfNumber: issue.nfNumber ?? undefined,
           reason,
           issueId: issue.id,
           locationId,
@@ -255,9 +268,11 @@ export async function PATCH(
         data: { status: "CANCELLED", cancelReason: parsed.data.reason?.trim(), cancelledAt: new Date() },
         select: { id: true, number: true, status: true, cancelReason: true, cancelledAt: true },
       });
-    });
+    },
+    { timeout: 60000 },
+  );
 
-    return NextResponse.json({ data: reverted });
+  return NextResponse.json({ data: reverted });
   }
 
   if (issue.status !== "DRAFT") {
@@ -267,20 +282,89 @@ export async function PATCH(
     );
   }
 
-  const pending = issue.items.filter((item) => item.fulfilledQuantity < item.quantity);
+  const userFulfilledQuantities = parsed.data.fulfilledQuantities ?? [];
+  const userFulfilledMap = new Map(userFulfilledQuantities.map((f) => [f.itemId, f.quantity]));
+
+  // Validate user-provided quantities if any
+  if (userFulfilledQuantities.length > 0) {
+    const itemIds = new Set(issue.items.map((i) => i.id));
+    // Skip unknown item IDs (stale frontend state) instead of erroring
+    const validQuantities = userFulfilledQuantities.filter((fq) =>
+      itemIds.has(fq.itemId),
+    );
+
+    for (const fq of validQuantities) {
+      const item = issue.items.find((i) => i.id === fq.itemId)!;
+      const maxAllowed = toNum(item.quantity);
+      if (fq.quantity > maxAllowed) {
+        return invalid(
+          [{ field: "fulfilledQuantities", message: `Quantidade atendida (${fq.quantity}) não pode exceder o pedido (${maxAllowed})` }],
+          400,
+        );
+      }
+    }
+
+    // Rebuild map with only valid quantities
+    const cleanedMap = new Map(validQuantities.map((f) => [f.itemId, f.quantity]));
+    // Replace the original map entries
+    userFulfilledMap.clear();
+    for (const [k, v] of cleanedMap) {
+      userFulfilledMap.set(k, v);
+    }
+  }
+
+  // Check stock availability for items that will be fulfilled
+  const itemsToFulfill = issue.items.filter((item) => {
+    const userQty = userFulfilledMap.get(item.id);
+    const currentFulfilled = toNum(item.fulfilledQuantity);
+    const targetQty = userQty !== undefined ? userQty : toNum(item.quantity);
+    return targetQty > currentFulfilled;
+  });
+
   const balances = await Promise.all(
-    pending.map(async (item) => ({
-      item,
-      available: await totalOnHand(prisma, item.materialId),
-    })),
+    itemsToFulfill.map(async (item) => {
+      const userQty = userFulfilledMap.get(item.id);
+      const currentFulfilled = toNum(item.fulfilledQuantity);
+      const targetQty = userQty !== undefined ? userQty : toNum(item.quantity);
+      const needed = targetQty - currentFulfilled;
+      const available = await totalOnHand(prisma, item.materialId);
+      return { item, needed, available };
+    }),
   );
-  if (balances.every(({ available }) => available <= 0)) {
+
+  // Total quantity to fulfill in this action and total already fulfilled
+  const totalNeeded = balances.reduce((sum, { needed }) => sum + needed, 0);
+  const totalAlreadyFulfilled = issue.items.reduce(
+    (sum, item) => sum + toNum(item.fulfilledQuantity),
+    0,
+  );
+
+  // Block closing when nothing is being fulfilled now and nothing was fulfilled before
+  if (totalNeeded === 0 && totalAlreadyFulfilled === 0) {
+    return NextResponse.json(
+      {
+        errors: [
+          {
+            field: "items",
+            message: "Informe pelo menos uma quantidade a ser atendida",
+          },
+        ],
+      },
+      { status: 400 },
+    );
+  }
+
+  // Only check stock balance when there are items to fulfill
+  if (
+    balances.length > 0 &&
+    balances.every(({ available }) => available <= 0)
+  ) {
     return NextResponse.json(
       {
         errors: [{ field: "items", message: "No balance available for any pending item" }],
-        data: balances.map(({ item, available }) => ({
+        data: balances.map(({ item, needed, available }) => ({
           materialId: item.materialId,
-          requested: item.quantity - item.fulfilledQuantity,
+          requested: needed,
           available,
         })),
       },
@@ -288,51 +372,84 @@ export async function PATCH(
     );
   }
 
+  // Check if any item has insufficient stock
+  for (const { item, needed, available } of balances) {
+    if (needed > available) {
+      return invalid(
+        [
+          {
+            field: "items",
+            message: `Saldo insuficiente para ${item.materialId}: solicitado ${needed}, disponível ${available}`,
+          },
+        ],
+        409,
+      );
+    }
+  }
+
   let closed;
   try {
-    closed = await prisma.$transaction(async (tx) => {
-    for (const { item, available } of balances) {
-      const missing = item.quantity - item.fulfilledQuantity;
-      const fulfill = Math.min(missing, available);
-      if (fulfill <= 0) continue;
-      const allocations = await removeStock(tx, { materialId: item.materialId, quantity: fulfill });
-      for (const allocation of allocations) {
-        await recordMovement(tx, {
-          type: "OUTBOUND",
-          quantity: allocation.taken,
-          materialId: item.materialId,
-          userId: auth.user.userId,
-          destination: issue.ot ?? issue.destination,
-          nfNumber: issue.nfNumber ?? undefined,
-          issueId: issue.id,
-          locationId: allocation.locationId,
-        });
-      }
-      await tx.issueItem.update({
-        where: { id: item.id },
-        data: { fulfilledQuantity: { increment: fulfill } },
-        select: { id: true },
-      });
-    }
-      return tx.issue.update({
-        where: { id },
-        data: { status: "CLOSED" },
-        select: {
-          id: true,
-          number: true,
-          ot: true,
-          destination: true,
-          status: true,
-          items: {
-            select: {
-              quantity: true,
-              fulfilledQuantity: true,
-              material: { select: { code: true, name: true, unit: true } },
+    closed = await prisma.$transaction(
+      async (tx) => {
+        // Collect all movements to batch create at the end
+        const movementsToCreate: Array<{
+          type: "OUTBOUND";
+          quantity: number;
+          materialId: string;
+          userId: string;
+          destination: string | null;
+          nfNumber: string | null;
+          issueId: string;
+          locationId: string;
+        }> = [];
+
+        for (const { item, needed } of balances) {
+          if (needed <= 0) continue;
+          const allocations = await removeStock(tx, { materialId: item.materialId, quantity: needed });
+          for (const allocation of allocations) {
+            movementsToCreate.push({
+              type: "OUTBOUND",
+              quantity: allocation.taken,
+              materialId: item.materialId,
+              userId: auth.user.userId,
+              destination: issue.ot ?? issue.destination,
+              nfNumber: issue.nfNumber ?? null,
+              issueId: issue.id,
+              locationId: allocation.locationId,
+            });
+          }
+          await tx.issueItem.update({
+            where: { id: item.id },
+            data: { fulfilledQuantity: { increment: needed } },
+            select: { id: true },
+          });
+        }
+
+        // Batch create all movements at once
+        if (movementsToCreate.length > 0) {
+          await recordMovements(tx, movementsToCreate);
+        }
+        return tx.issue.update({
+          where: { id },
+          data: { status: "CLOSED" },
+          select: {
+            id: true,
+            number: true,
+            ot: true,
+            destination: true,
+            status: true,
+            items: {
+              select: {
+                quantity: true,
+                fulfilledQuantity: true,
+                material: { select: { code: true, name: true, unit: true } },
+              },
             },
           },
-        },
-      });
-    });
+        });
+      },
+      { timeout: 60000 }, // 60s timeout for large OTs with many items
+    );
   } catch (err) {
     // Corrida com outro fechamento/baixa: o saldo lido antes da transação
     // evaporou. 409 tratável em vez de 500.

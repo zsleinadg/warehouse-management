@@ -112,10 +112,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       movements: [],
     };
     const sign = m.type === "RETURN" ? -1 : 1;
-    entry.totalQuantity += sign * m.quantity;
-    entry.totalCostCents += sign * m.quantity * m.material.costCents;
+    const qty = Number(m.quantity);
+    entry.totalQuantity += sign * qty;
+    entry.totalCostCents += sign * qty * m.material.costCents;
     entry.movementCount += 1;
-    entry.movements.push({ type: m.type, quantity: m.quantity, destination: m.destination, nfNumber: m.nfNumber, location: m.locationId ? (locationNameById.get(m.locationId) ?? m.locationId) : null, createdAt: m.createdAt.toISOString() });
+    entry.movements.push({ type: m.type, quantity: qty, destination: m.destination, nfNumber: m.nfNumber, location: m.locationId ? (locationNameById.get(m.locationId) ?? m.locationId) : null, createdAt: m.createdAt.toISOString() });
     byMaterial.set(key, entry);
   }
 

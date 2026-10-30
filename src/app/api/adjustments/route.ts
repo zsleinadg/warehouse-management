@@ -5,9 +5,15 @@ import prisma from "@/lib/prisma";
 import { authorize } from "@/lib/roles";
 import { assertPlaceable } from "@/lib/locations";
 
+function toNum(val: unknown): number {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === "number") return val;
+  return Number(val);
+}
+
 const itemSchema = z.object({
   materialId: z.uuid("Invalid material"),
-  countedQuantity: z.coerce.number().int().min(0, "Counted quantity cannot be negative"),
+  countedQuantity: z.coerce.number().nonnegative("Counted quantity cannot be negative"),
 });
 
 const createSchema = z.object({
@@ -42,7 +48,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         location: { select: { id: true, name: true } },
         user: { select: { name: true } },
         _count: { select: { items: true } },
-        items: { where: { difference: { not: 0 } }, select: { id: true } },
+        items: { select: { id: true, difference: true } },
       },
       orderBy: { createdAt: "desc" },
       take,
@@ -59,7 +65,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       location: count.location,
       user: count.user,
       itemCount: count._count.items,
-      divergenceCount: count.items.length,
+      divergenceCount: count.items.filter((i) => toNum(i.difference) !== 0).length,
     })),
     meta: { total, take, skip },
   });
@@ -136,10 +142,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // Merge repeated lines for the same material (keep the last count).
   const countedByMaterial = new Map<string, number>();
   for (const item of parsed.data.items) {
-    countedByMaterial.set(item.materialId, item.countedQuantity);
+    countedByMaterial.set(item.materialId, toNum(item.countedQuantity));
   }
   const lines = [...countedByMaterial.entries()].map(([materialId, countedQuantity]) => {
-    const systemQuantity = stockByMaterial.get(materialId)?.quantity ?? 0;
+    const systemQuantity = toNum(stockByMaterial.get(materialId)?.quantity);
     return { materialId, systemQuantity, countedQuantity, difference: countedQuantity - systemQuantity };
   });
   const divergent = lines.filter((line) => line.difference !== 0);
