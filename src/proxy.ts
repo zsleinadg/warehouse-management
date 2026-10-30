@@ -6,6 +6,8 @@ import { ACCESS_COOKIE, verifyAccessToken } from "./lib/tokens";
  * other page needs a valid access token (else /login), every API route
  * except /api/auth/* needs one too (else 401 JSON).
  */
+const BLOCKED_ROUTES = ["/auditoria", "/relatorios", "/isometrica"];
+
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
   const token = request.cookies.get(ACCESS_COOKIE)?.value;
@@ -26,9 +28,14 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
+  // Bloquear rotas que estão desabilitadas
+  if (BLOCKED_ROUTES.includes(pathname)) {
+    return NextResponse.redirect(new URL("/", request.url));
+  }
+
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/auth|api/admin/reset-blict-stock|api/materials).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/auth|api/admin/reset-blict-stock|api/admin/clear-test-data|api/materials).*)"],
 };
