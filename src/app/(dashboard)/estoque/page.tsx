@@ -327,7 +327,7 @@ export default function EstoquePage() {
           {canEdit && selectedId && selected && (
             <Card className="mb-4">
               <CardHeader>
-                <CardTitle className="text-sm">Mover material para "{selected.name}"</CardTitle>
+                <CardTitle className="text-sm">Mover material para &quot;{selected.name}&quot;</CardTitle>
               </CardHeader>
               <CardContent className="p-3">
                 <div className="flex flex-col sm:flex-row gap-2 items-end">
